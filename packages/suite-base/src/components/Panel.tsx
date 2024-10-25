@@ -676,7 +676,7 @@ export default function Panel<
                   />
                 )}
                 <PanelErrorBoundary onRemovePanel={removePanel} onResetPanel={resetPanel}>
-                  <React.StrictMode>{child}</React.StrictMode>
+                  {child}
                 </PanelErrorBoundary>
                 {process.env.NODE_ENV !== "production" && (
                   <div className={classes.perfInfo} ref={perfInfo} />

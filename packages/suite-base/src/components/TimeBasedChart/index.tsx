@@ -162,6 +162,8 @@ export default function TimeBasedChart(props: Props): JSX.Element {
     yAxes,
   } = props;
 
+  const [internalDatasetId] = useState<string>(() => datasetId ?? uuidv4());
+
   const [datasetBounds, setDatasetBounds] = useState<Bounds>({
     x: {
       min: 0,
@@ -706,8 +708,8 @@ export default function TimeBasedChart(props: Props): JSX.Element {
   );
 
   useEffect(() => {
-    log.debug(`<TimeBasedChart> (datasetId=${datasetId})`);
-  }, [datasetId]);
+    log.debug(`<TimeBasedChart> (datasetId=${internalDatasetId})`);
+  }, [internalDatasetId]);
 
   const datasets = provided?.data.datasets ?? typedProvided?.data.datasets;
   const datasetsLength = datasets?.length ?? 0;
