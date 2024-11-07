@@ -35,7 +35,7 @@ import { encodeRendererArg } from "../common/rendererArgs";
 import { LICHTBLICK_PRODUCT_NAME } from "../common/webpackDefines";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
-
+app.commandLine.appendSwitch('force-device-scale-factor', '1');
 const isMac = process.platform === "darwin";
 const isLinux = process.platform === "linux";
 const isWindows = process.platform === "win32";
@@ -108,6 +108,18 @@ function newStudioWindow(deepLinks: string[] = [], reloadMainWindow: () => void)
   }
 
   const browserWindow = new BrowserWindow(windowOptions);
+  app.commandLine.appendSwitch('high-dpi-support', '1');
+
+  browserWindow.setBounds({width: 1920, height: 1080});
+  browserWindow.setMinimumSize(800, 600);
+  browserWindow.setMaximumSize(2560, 1440);
+
+  // browserWindow.addListener("resize", () => {
+  //   console.log("Event: resize", browserWindow.getBounds());
+  //   browserWindow.webContents.setZoomFactor(1);
+  // });
+  //browserWindow.setFullScreen(true);
+
   nativeTheme.on("updated", () => {
     if (isWindows) {
       // Although the TS types say this function is always available, it is undefined on non-Windows platforms
@@ -162,6 +174,8 @@ function newStudioWindow(deepLinks: string[] = [], reloadMainWindow: () => void)
   browserWindow.webContents.on("ipc-message", (_event, channel) => {
     switch (channel) {
       case "titleBarDoubleClicked": {
+        console.log("titleBarDoubleClicked")
+
         const action: string =
           // Although the TS types say this function is always available, it is undefined on non-Mac platforms
           (isMac && systemPreferences.getUserDefault("AppleActionOnDoubleClick", "string")) ||
@@ -169,7 +183,9 @@ function newStudioWindow(deepLinks: string[] = [], reloadMainWindow: () => void)
         if (action === "Minimize") {
           browserWindow.minimize();
         } else if (action === "Maximize") {
+          console.log("titleBarDoubleClicked | action Maximize performed")
           if (browserWindow.isMaximized()) {
+          console.log("titleBarDoubleClicked | action unMaximize performed")
             browserWindow.unmaximize();
           } else {
             browserWindow.maximize();
@@ -183,10 +199,12 @@ function newStudioWindow(deepLinks: string[] = [], reloadMainWindow: () => void)
         browserWindow.minimize();
         break;
       case "maximizeWindow":
+        console.log("case  maximizeWindow| action Maximize performed")
         browserWindow.maximize();
         break;
       case "unmaximizeWindow":
         browserWindow.unmaximize();
+        console.log("case  unmaximizeWindow| action unmaximize performed")
         break;
       case "closeWindow":
         browserWindow.close();

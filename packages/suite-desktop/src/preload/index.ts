@@ -156,6 +156,7 @@ export function main(): void {
       return await uninstallExtension(id, userExtensionRoot);
     },
     handleTitleBarDoubleClick() {
+      console.log("doublec-click-performed")
       ipcRenderer.send("titleBarDoubleClicked");
     },
     isMaximized() {
