@@ -64,6 +64,15 @@ function getTitleBarOverlayOptions(): TitleBarOverlayOptions {
   return {};
 }
 
+//verifying if the resolution is 4K
+function is4KResolution(): boolean {
+  const { screen } = require('electron');
+  console.log("is 4K RESOLUTION");
+  const primaryDisplay = screen.getPrimaryDisplay();
+  //not sure if these are the correct values for 4K resolution
+  return primaryDisplay.size.width >= 2560 && primaryDisplay.size.height >= 1032;
+}
+
 function newStudioWindow(deepLinks: string[] = [], reloadMainWindow: () => void): BrowserWindow {
   const { crashReportingEnabled, telemetryEnabled } = getTelemetrySettings();
   const preloadPath = path.join(app.getAppPath(), "main", "preload.js");
@@ -98,6 +107,8 @@ function newStudioWindow(deepLinks: string[] = [], reloadMainWindow: () => void)
       // the Origin header is not sent, disabling the CORS
       // Access-Control-Allow-Origin check
       webSecurity: isProduction,
+      // I think that this change is necessary
+      zoomFactor: 1
     },
   };
   if (!isProduction) {
@@ -110,15 +121,11 @@ function newStudioWindow(deepLinks: string[] = [], reloadMainWindow: () => void)
   const browserWindow = new BrowserWindow(windowOptions);
   app.commandLine.appendSwitch('high-dpi-support', '1');
 
-  browserWindow.setBounds({width: 1920, height: 1080});
-  browserWindow.setMinimumSize(800, 600);
-  browserWindow.setMaximumSize(2560, 1440);
-
-  // browserWindow.addListener("resize", () => {
-  //   console.log("Event: resize", browserWindow.getBounds());
-  //   browserWindow.webContents.setZoomFactor(1);
-  // });
-  //browserWindow.setFullScreen(true);
+  if (is4KResolution()) {
+    browserWindow.setBounds({ x: 0, y: 0, width: 2560, height: 1032 });
+  } else {
+    browserWindow.setBounds({ width: 1920, height: 1080 });
+  }
 
   nativeTheme.on("updated", () => {
     if (isWindows) {
