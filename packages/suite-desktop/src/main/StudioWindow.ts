@@ -178,11 +178,14 @@ function newStudioWindow(deepLinks: string[] = [], reloadMainWindow: () => void)
     }
   });
 
+  browserWindow.on('enter-full-screen', () => {
+    app.commandLine.appendSwitch("disable-gpu"); // Disable GPU for fullscreen
+    console.log("enter-full-screen");
+  });
   browserWindow.webContents.on("ipc-message", (_event, channel) => {
     switch (channel) {
       case "titleBarDoubleClicked": {
         console.log("titleBarDoubleClicked")
-
         const action: string =
           // Although the TS types say this function is always available, it is undefined on non-Mac platforms
           (isMac && systemPreferences.getUserDefault("AppleActionOnDoubleClick", "string")) ||

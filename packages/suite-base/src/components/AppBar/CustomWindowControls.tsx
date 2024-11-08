@@ -48,16 +48,21 @@ export function CustomWindowControls({
       <IconButton
         size="small"
         color="inherit"
-        onClick={onMinimizeWindow}
+        onClick={() => {
+          console.log("Minimize button clicked");
+          onMinimizeWindow && onMinimizeWindow();
+        }}
         data-testid="win-minimize"
       >
         <MinimizeIcon fontSize="inherit" color="inherit" />
       </IconButton>
-
       <IconButton
         size="small"
         color="inherit"
-        onClick={isMaximized ? onUnmaximizeWindow : onMaximizeWindow}
+        onClick={() => {
+          console.log(isMaximized ? "Unmaximize button clicked" : "Maximize button clicked");
+          isMaximized ? onUnmaximizeWindow && onUnmaximizeWindow() : onMaximizeWindow && onMaximizeWindow();
+        }}
         data-testid="win-maximize"
       >
         {isMaximized ? (
