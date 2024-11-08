@@ -178,13 +178,12 @@ function newStudioWindow(deepLinks: string[] = [], reloadMainWindow: () => void)
     }
   });
 
-  browserWindow.on('enter-full-screen', () => {
-    app.commandLine.appendSwitch("disable-gpu"); // Disable GPU for fullscreen
-    app.commandLine.appendSwitch("disable-gpu-compositing");
-    app.commandLine.appendSwitch("headless");
+  app.commandLine.appendSwitch("disable-gpu"); // Disable GPU for fullscreen
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+  app.commandLine.appendSwitch("headless");
 
     console.log("enter-full-screen");
-  });
+
   browserWindow.webContents.on("ipc-message", (_event, channel) => {
     switch (channel) {
       case "titleBarDoubleClicked": {
