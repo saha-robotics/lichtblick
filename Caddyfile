@@ -1,9 +1,7 @@
 lb.saharobotik.com:443 {
     root * /src
     file_server
-    tls {
-        dns cloudflare
-    }
+    tls
 }
 
 lb.saharobotik.com:80 {
