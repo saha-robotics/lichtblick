@@ -13,7 +13,8 @@ FROM caddy:2.5.2-alpine
 WORKDIR /src
 COPY --from=build /src/web/.webpack ./
 
-EXPOSE 8080
+EXPOSE 80
+EXPOSE 443
 
 COPY <<EOF /entrypoint.sh
 # Optionally override the default layout with one provided via bind mount
@@ -28,5 +29,7 @@ echo "\${index_html/"\$replace_pattern"/\$replace_value}" > index.html
 exec "\$@"
 EOF
 
+COPY Caddyfile /etc/caddy/Caddyfile
+
 ENTRYPOINT ["/bin/sh", "/entrypoint.sh"]
-CMD ["caddy", "file-server", "--listen", ":8080"]
+CMD ["caddy", "start", "--config", "/etc/caddy/Caddyfile"]
