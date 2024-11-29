@@ -27,8 +27,9 @@ const defaultConfig: Config = {
   maxValue: 1,
   colorMap: "red-yellow-green",
   colorMode: "colormap",
-  gradient: ["#0000ff", "#ff00ff"],
+  gradient: [ "#0000ff", "#ff00ff" ],
   reverse: false,
+  title: "",
 };
 
 type State = {
@@ -45,14 +46,14 @@ type Action =
   | { type: "path"; path: string }
   | { type: "seek" };
 
-function getSingleDataItem(results: unknown[]) {
+function getSingleDataItem (results: unknown[]) {
   if (results.length <= 1) {
-    return results[0];
+    return results[ 0 ];
   }
   throw new Error("Message path produced multiple results");
 }
 
-function reducer(state: State, action: Action): State {
+function reducer (state: State, action: Action): State {
   try {
     switch (action.type) {
       case "frame": {
@@ -122,7 +123,7 @@ function reducer(state: State, action: Action): State {
   }
 }
 
-function getConicGradient(config: Config, width: number, height: number, gaugeAngle: number) {
+function getConicGradient (config: Config, width: number, height: number, gaugeAngle: number) {
   let colorStops: { color: string; location: number }[];
   switch (config.colorMode) {
     case "colormap":
@@ -156,8 +157,8 @@ function getConicGradient(config: Config, width: number, height: number, gaugeAn
       break;
     case "gradient":
       colorStops = [
-        { color: config.gradient[0], location: 0 },
-        { color: config.gradient[1], location: 1 },
+        { color: config.gradient[ 0 ], location: 0 },
+        { color: config.gradient[ 1 ], location: 1 },
       ];
       break;
   }
@@ -167,24 +168,23 @@ function getConicGradient(config: Config, width: number, height: number, gaugeAn
       .reverse();
   }
 
-  return `conic-gradient(from ${-Math.PI / 2 + gaugeAngle}rad at 50% ${
-    100 * (width / 2 / height)
-  }%, ${colorStops
-    .map((stop) => `${stop.color} ${stop.location * 2 * (Math.PI / 2 - gaugeAngle)}rad`)
-    .join(",")}, ${colorStops[0]!.color})`;
+  return `conic-gradient(from ${-Math.PI / 2 + gaugeAngle}rad at 50% ${100 * (width / 2 / height)
+    }%, ${colorStops
+      .map((stop) => `${stop.color} ${stop.location * 2 * (Math.PI / 2 - gaugeAngle)}rad`)
+      .join(",")}, ${colorStops[ 0 ]!.color})`;
 }
 
-export function Gauge({ context }: Props): JSX.Element {
+export function Gauge ({ context }: Props): JSX.Element {
   // panel extensions must notify when they've completed rendering
   // onRender will setRenderDone to a done callback which we can invoke after we've rendered
-  const [renderDone, setRenderDone] = useState<() => void>(() => () => {});
+  const [ renderDone, setRenderDone ] = useState<() => void>(() => () => { });
 
-  const [config, setConfig] = useState(() => ({
+  const [ config, setConfig ] = useState(() => ({
     ...defaultConfig,
     ...(context.initialState as Partial<Config>),
   }));
 
-  const [state, dispatch] = useReducer(
+  const [ state, dispatch ] = useReducer(
     reducer,
     config,
     ({ path }): State => ({
@@ -199,12 +199,12 @@ export function Gauge({ context }: Props): JSX.Element {
 
   useLayoutEffect(() => {
     dispatch({ type: "path", path: config.path });
-  }, [config.path]);
+  }, [ config.path ]);
 
   useEffect(() => {
     context.saveState(config);
     context.setDefaultPanelTitle(config.path === "" ? undefined : config.path);
-  }, [config, context]);
+  }, [ config, context ]);
 
   useEffect(() => {
     context.onRender = (renderState, done) => {
@@ -224,13 +224,13 @@ export function Gauge({ context }: Props): JSX.Element {
     return () => {
       context.onRender = undefined;
     };
-  }, [context]);
+  }, [ context ]);
 
   const settingsActionHandler = useCallback(
     (action: SettingsTreeAction) => {
       setConfig((prevConfig) => settingsActionReducer(prevConfig, action));
     },
-    [setConfig],
+    [ setConfig ],
   );
 
   const settingsTree = useSettingsTree(config, state.pathParseError, state.error?.message);
@@ -239,25 +239,25 @@ export function Gauge({ context }: Props): JSX.Element {
       actionHandler: settingsActionHandler,
       nodes: settingsTree,
     });
-  }, [context, settingsActionHandler, settingsTree]);
+  }, [ context, settingsActionHandler, settingsTree ]);
 
   useEffect(() => {
     if (state.parsedPath?.topicName != undefined) {
-      context.subscribe([{ topic: state.parsedPath.topicName, preload: false }]);
+      context.subscribe([ { topic: state.parsedPath.topicName, preload: false } ]);
     }
     return () => {
       context.unsubscribeAll();
     };
-  }, [context, state.parsedPath?.topicName]);
+  }, [ context, state.parsedPath?.topicName ]);
 
   // Indicate render is complete - the effect runs after the dom is updated
   useEffect(() => {
     renderDone();
-  }, [renderDone]);
+  }, [ renderDone ]);
 
   const rawValue =
     typeof state.latestMatchingQueriedData === "number" ||
-    typeof state.latestMatchingQueriedData === "string"
+      typeof state.latestMatchingQueriedData === "string"
       ? Number(state.latestMatchingQueriedData)
       : NaN;
 
@@ -280,7 +280,7 @@ export function Gauge({ context }: Props): JSX.Element {
     ) + padding;
   const needleThickness = 8;
   const needleExtraLength = 0.05;
-  const [clipPathId] = useState(() => `gauge-clip-path-${uuidv4()}`);
+  const [ clipPathId ] = useState(() => `gauge-clip-path-${uuidv4()}`);
   return (
     <div
       style={{
@@ -292,8 +292,23 @@ export function Gauge({ context }: Props): JSX.Element {
         alignItems: "center",
         overflow: "hidden",
         padding: 8,
+        position: "relative",
       }}
     >
+      {config.title ? (<div style={{
+        position: "absolute",
+        top: 3,
+        left: 6,
+        fontFamily: "Inter",
+        whiteSpace: "pre-line",
+        fontSize: "0.642857rem",
+        userSelect: "none",
+        mixBlendMode: "difference",
+        color: "rgb(167, 166, 175)"
+      }}>
+        {config.title}
+      </div>) : null}
+
       <div style={{ width: "100%", overflow: "hidden" }}>
         <div
           style={{
@@ -328,8 +343,7 @@ export function Gauge({ context }: Props): JSX.Element {
               margin: "0 auto",
               transform: [
                 `scaleZ(1)`,
-                `rotate(${
-                  -Math.PI / 2 + gaugeAngle + scaledValue * 2 * (Math.PI / 2 - gaugeAngle)
+                `rotate(${-Math.PI / 2 + gaugeAngle + scaledValue * 2 * (Math.PI / 2 - gaugeAngle)
                 }rad)`,
                 `translateX(${-needleThickness / 2}px)`,
                 `translateY(${needleThickness / 2}px)`,
@@ -343,17 +357,13 @@ export function Gauge({ context }: Props): JSX.Element {
             <path
               transform={`scale(${1 / width}, ${1 / height})`}
               d={[
-                `M ${centerX - radius * Math.cos(gaugeAngle)},${
-                  centerY - radius * Math.sin(gaugeAngle)
+                `M ${centerX - radius * Math.cos(gaugeAngle)},${centerY - radius * Math.sin(gaugeAngle)
                 }`,
-                `A 0.5,0.5 0 ${gaugeAngle < 0 ? 1 : 0} 1 ${
-                  centerX + radius * Math.cos(gaugeAngle)
+                `A 0.5,0.5 0 ${gaugeAngle < 0 ? 1 : 0} 1 ${centerX + radius * Math.cos(gaugeAngle)
                 },${centerY - radius * Math.sin(gaugeAngle)}`,
-                `L ${centerX + innerRadius * Math.cos(gaugeAngle)},${
-                  centerY - innerRadius * Math.sin(gaugeAngle)
+                `L ${centerX + innerRadius * Math.cos(gaugeAngle)},${centerY - innerRadius * Math.sin(gaugeAngle)
                 }`,
-                `A ${innerRadius},${innerRadius} 0 ${gaugeAngle < 0 ? 1 : 0} 0 ${
-                  centerX - innerRadius * Math.cos(gaugeAngle)
+                `A ${innerRadius},${innerRadius} 0 ${gaugeAngle < 0 ? 1 : 0} 0 ${centerX - innerRadius * Math.cos(gaugeAngle)
                 },${centerY - innerRadius * Math.sin(gaugeAngle)}`,
                 `Z`,
               ].join(" ")}

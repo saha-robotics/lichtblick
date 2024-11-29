@@ -13,4 +13,5 @@ export type Config = {
   colorMap: "red-yellow-green" | "rainbow" | "turbo";
   gradient: [string, string];
   reverse: boolean;
+  title: string;
 };

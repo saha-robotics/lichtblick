@@ -103,6 +103,11 @@ export function useSettingsTree(
           input: "boolean",
           value: config.reverse,
         },
+        title: {
+          label: "Label",
+          input: "string",
+          value: config.title,
+        }
       },
     }),
     [error, config, pathParseError],
