@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -7,7 +7,7 @@
 
 import { SvgIcon, SvgIconProps } from "@mui/material";
 
-export default function LichtblickLogoText(props: SvgIconProps): React.JSX.Element {
+export default function LichtblickLogoText (props: SvgIconProps): React.JSX.Element {
   return (
     <SvgIcon viewBox="0 0 909 204" {...props}>
       <title>Lichtblick</title>
