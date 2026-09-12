@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -23,6 +23,9 @@ import {
 } from "@lichtblick/suite-base";
 
 import Root from "./Root";
+import { Desktop } from "../common/types";
+
+const desktopBridge = (global as unknown as { desktopBridge: Desktop }).desktopBridge;
 
 const log = Logger.getLogger(__filename);
 
@@ -61,10 +64,13 @@ export async function main(params: MainParams): Promise<void> {
   await waitForFonts();
   await initI18n();
 
+  const cliFlags = await desktopBridge.getCLIFlags();
+
   const root = createRoot(rootEl);
   root.render(
     <LogAfterRender>
       <Root
+        appParameters={cliFlags}
         appConfiguration={params.appConfiguration}
         extraProviders={params.extraProviders}
         dataSources={params.dataSources}

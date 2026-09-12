@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -16,12 +16,12 @@
 
 import { Link } from "@mui/material";
 import { CSSProperties, PropsWithChildren, useCallback, useContext } from "react";
-import Markdown from "react-markdown";
-import { PluggableList } from "react-markdown/lib";
+import Markdown, { type Options } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import { makeStyles } from "tss-react/mui";
 
 import LinkHandlerContext from "@lichtblick/suite-base/context/LinkHandlerContext";
+import { customTypography } from "@lichtblick/theme";
 
 const useStyles = makeStyles()(({ palette, shape, spacing, typography, shadows }) => {
   return {
@@ -98,7 +98,7 @@ const useStyles = makeStyles()(({ palette, shape, spacing, typography, shadows }
       },
       pre: {
         whiteSpace: "pre-wrap",
-        fontFamily: typography.fontMonospace,
+        fontFamily: customTypography.fontMonospace,
         backgroundColor: palette.action.hover,
         padding: spacing(0, 0.5),
         borderRadius: shadows[2],
@@ -109,7 +109,7 @@ const useStyles = makeStyles()(({ palette, shape, spacing, typography, shadows }
         },
       },
       code: {
-        fontFamily: typography.fontMonospace,
+        fontFamily: customTypography.fontMonospace,
         backgroundColor: palette.action.hover,
         borderRadius: "0.2em",
         padding: spacing(0, 0.5),
@@ -117,7 +117,7 @@ const useStyles = makeStyles()(({ palette, shape, spacing, typography, shadows }
       kbd: {
         display: "inline-flex",
         flex: "none",
-        fontFamily: typography.fontMonospace,
+        fontFamily: customTypography.fontMonospace,
         color: palette.text.secondary,
         backgroundColor: palette.background.default,
         boxShadow: `inset 0 1px 0 ${palette.action.hover}`,
@@ -193,7 +193,9 @@ export default function TextContent(
     <div className={classes.root} style={style}>
       {typeof children === "string" ? (
         <Markdown
-          rehypePlugins={allowMarkdownHtml === true ? ([rehypeRaw] as PluggableList) : []}
+          rehypePlugins={
+            allowMarkdownHtml === true ? ([rehypeRaw] as Options["rehypePlugins"]) : []
+          }
           components={{ a: linkRenderer }}
         >
           {children}

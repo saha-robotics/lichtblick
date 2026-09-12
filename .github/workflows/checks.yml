@@ -1,0 +1,25 @@
+# What a pull request has to pass here. Upstream's own workflows are not kept
+# in this fork: its release.yml bumps the version and tags on every merge to
+# main, its ci.yml builds the desktop app and runs browser e2e on every push,
+# and the rest deploy to services this fork has no accounts on. What we ship is
+# the web build in image.yml; what we want to know before merging is that the
+# code still type-checks, lints and passes its unit tests.
+name: Checks
+on:
+  pull_request:
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn build:packages
+      - run: yarn lint:ci
+      - run: yarn test --ci

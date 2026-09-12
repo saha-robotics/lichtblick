@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -14,7 +14,7 @@
 //   found at http://www.apache.org/licenses/LICENSE-2.0
 //   You may not use this file except in compliance with the License.
 
-import { StoryObj } from "@storybook/react";
+import { StoryObj } from "@storybook/react-webpack5";
 import { fireEvent, screen } from "@storybook/testing-library";
 import { useCallback, useEffect } from "react";
 
@@ -25,7 +25,7 @@ import rawUserUtils from "@lichtblick/suite-base/players/UserScriptPlayer/transf
 import { UserScriptLog } from "@lichtblick/suite-base/players/UserScriptPlayer/types";
 import PanelSetup from "@lichtblick/suite-base/stories/PanelSetup";
 import { ExpectedResult } from "@lichtblick/suite-base/stories/storyHelpers";
-import { DEFAULT_STUDIO_SCRIPT_PREFIX } from "@lichtblick/suite-base/util/globalConstants";
+import { DEFAULT_STUDIO_SCRIPT_PREFIX } from "@lichtblick/suite-base/util/constants";
 
 const userScripts = {
   nodeId1: { name: "/studio_script/script", sourceCode: "const someVariableName = 1;" },
@@ -87,7 +87,7 @@ const logs: UserScriptLog[] = [
   { source: "registerScript", value: 100 },
   { source: "registerScript", value: false },
   { source: "registerScript", value: "abc" },
-  { source: "registerScript", value: null }, // eslint-disable-line no-restricted-syntax
+  { source: "registerScript", value: null },
   { source: "registerScript", value: undefined },
   {
     source: "processMessage",
@@ -225,6 +225,7 @@ export const UtilsUsageInNode: StoryObj = {
 
 export const EditorShowsNewCodeWhenUserNodesChange: StoryObj = {
   render: function Story() {
+    // eslint-disable-next-line @typescript-eslint/no-shadow
     const ChangeUserNodeOnMount = useCallback(function ChangeUserNodeOnMount(): React.JSX.Element {
       const actions = useCurrentLayoutActions();
       useEffect(() => {

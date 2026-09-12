@@ -1,17 +1,14 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 import {
-  Channel,
   ChannelId,
-  ClientChannel,
   FoxgloveClient,
   ServerCapability,
   SubscriptionId,
-  Service,
   ServiceCallPayload,
   ServiceCallRequest,
   ServiceCallResponse,
@@ -20,6 +17,7 @@ import {
   FetchAssetStatus,
   FetchAssetResponse,
   BinaryOpcode,
+  IWebSocket,
 } from "@foxglove/ws-protocol";
 import * as base64 from "@protobufjs/base64";
 import * as _ from "lodash-es";
@@ -27,15 +25,22 @@ import { v4 as uuidv4 } from "uuid";
 
 import { debouncePromise } from "@lichtblick/den/async";
 import Log from "@lichtblick/log";
-import { parseChannel, ParsedChannel } from "@lichtblick/mcap-support";
+import { parseChannel } from "@lichtblick/mcap-support";
 import { MessageDefinition, isMsgDefEqual } from "@lichtblick/message-definition";
 import CommonRosTypes from "@lichtblick/rosmsg-msgs-common";
 import { MessageWriter as Ros1MessageWriter } from "@lichtblick/rosmsg-serialization";
 import { MessageWriter as Ros2MessageWriter } from "@lichtblick/rosmsg2-serialization";
-import { fromMillis, fromNanoSec, isGreaterThan, isLessThan, Time } from "@lichtblick/rostime";
+import {
+  fromMillis,
+  fromNanoSec,
+  isGreaterThan,
+  isLessThan,
+  subtract,
+  Time,
+} from "@lichtblick/rostime";
 import { ParameterValue } from "@lichtblick/suite";
 import { Asset } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
-import PlayerProblemManager from "@lichtblick/suite-base/players/PlayerProblemManager";
+import PlayerAlertManager from "@lichtblick/suite-base/players/PlayerAlertManager";
 import { PLAYER_CAPABILITIES } from "@lichtblick/suite-base/players/constants";
 import { estimateObjectSize } from "@lichtblick/suite-base/players/messageMemoryEstimation";
 import {
@@ -44,55 +49,42 @@ import {
   Player,
   PlayerMetricsCollectorInterface,
   PlayerPresence,
-  PlayerProblem,
+  PlayerAlert,
   PlayerState,
   PublishPayload,
   SubscribePayload,
   Topic,
   TopicStats,
 } from "@lichtblick/suite-base/players/types";
+import { HIGH_FREQUENCY_ALERT } from "@lichtblick/suite-base/players/utils/constants";
+import { isTopicHighFrequency } from "@lichtblick/suite-base/players/utils/isTopicHighFrequency";
 import rosDatatypesToMessageDefinition from "@lichtblick/suite-base/util/rosDatatypesToMessageDefinition";
 
 import { JsonMessageWriter } from "./JsonMessageWriter";
-import { MessageWriter } from "./MessageWriter";
 import WorkerSocketAdapter from "./WorkerSocketAdapter";
+import {
+  CURRENT_FRAME_MAXIMUM_SIZE_BYTES,
+  FALLBACK_PUBLICATION_ENCODING,
+  GET_ALL_PARAMS_PERIOD_MS,
+  GET_ALL_PARAMS_REQUEST_ID,
+  ROS_ENCODINGS,
+  SUBSCRIPTION_WARNING_SUPPRESSION_MS,
+  SUPPORTED_PUBLICATION_ENCODINGS,
+  SUPPORTED_SERVICE_ENCODINGS,
+  ZERO_TIME,
+} from "./constants";
+import { dataTypeToFullName, statusLevelToAlertSeverity } from "./helpers";
+import {
+  MessageWriter,
+  MessageDefinitionMap,
+  Publication,
+  ResolvedChannel,
+  ResolvedService,
+} from "./types";
 
 const log = Log.getLogger(__dirname);
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
-
-/** Suppress warnings about messages on unknown subscriptions if the susbscription was recently canceled. */
-const SUBSCRIPTION_WARNING_SUPPRESSION_MS = 2000;
-
-const ZERO_TIME = Object.freeze({ sec: 0, nsec: 0 });
-const GET_ALL_PARAMS_REQUEST_ID = "get-all-params";
-const GET_ALL_PARAMS_PERIOD_MS = 15000;
-const ROS_ENCODINGS = ["ros1", "cdr"];
-const SUPPORTED_PUBLICATION_ENCODINGS = ["json", ...ROS_ENCODINGS];
-const FALLBACK_PUBLICATION_ENCODING = "json";
-const SUPPORTED_SERVICE_ENCODINGS = ["json", ...ROS_ENCODINGS];
-
-type ResolvedChannel = {
-  channel: Channel;
-  parsedChannel: ParsedChannel;
-};
-type Publication = ClientChannel & { messageWriter?: Ros1MessageWriter | Ros2MessageWriter };
-type ResolvedService = {
-  service: Service;
-  parsedResponse: ParsedChannel;
-  requestMessageWriter: MessageWriter;
-};
-type MessageDefinitionMap = Map<string, MessageDefinition>;
-
-/**
- * When the tab is inactive setTimeout's are throttled to at most once per second.
- * Because the MessagePipeline listener uses timeouts to resolve its promises, it throttles our ability to
- * emit a frame more than once per second. In the websocket player this was causing
- * an accumulation of messages that were waiting to be emitted, this could keep growing
- * indefinitely if the rate at which we emit a frame is low enough.
- * 400MB
- */
-const CURRENT_FRAME_MAXIMUM_SIZE_BYTES = 400 * 1024 * 1024;
 
 export default class FoxgloveWebSocketPlayer implements Player {
   readonly #sourceId: string;
@@ -114,7 +106,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #receivedBytes: number = 0;
   #metricsCollector: PlayerMetricsCollectorInterface;
   #presence: PlayerPresence = PlayerPresence.INITIALIZING;
-  #problems = new PlayerProblemManager();
+  #alerts = new PlayerAlertManager();
   #numTimeSeeks = 0;
   #profile?: string;
   #urlState: PlayerState["urlState"];
@@ -156,6 +148,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #fetchedAssets = new Map<string, Promise<Asset>>();
   #parameterTypeByName = new Map<string, Parameter["type"]>();
   #messageSizeEstimateByTopic: Record<string, number> = {};
+  #ishighFrequencyMessage = false;
 
   public constructor({
     url,
@@ -194,11 +187,13 @@ export default class FoxgloveWebSocketPlayer implements Player {
       this.#client?.close();
     }, 10000);
 
+    const subprotocols = [FoxgloveClient.SUPPORTED_SUBPROTOCOL, "foxglove.sdk.v1"];
+
     this.#client = new FoxgloveClient({
       ws:
         typeof Worker !== "undefined"
-          ? new WorkerSocketAdapter(this.#url, [FoxgloveClient.SUPPORTED_SUBPROTOCOL])
-          : new WebSocket(this.#url, [FoxgloveClient.SUPPORTED_SUBPROTOCOL]),
+          ? new WorkerSocketAdapter(this.#url, subprotocols)
+          : (new WebSocket(this.#url, subprotocols) as IWebSocket),
     });
 
     this.#client.on("open", () => {
@@ -210,7 +205,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       }
       this.#presence = PlayerPresence.PRESENT;
       this.#resetSessionState();
-      this.#problems.clear();
+      this.#alerts.clear();
       this.#channelsById.clear();
       this.#channelsByTopic.clear();
       this.#servicesByName.clear();
@@ -229,6 +224,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       this.#advertisedServices = undefined;
       this.#datatypes = new Map();
       this.#parameters = new Map();
+      this.#ishighFrequencyMessage = false;
     });
 
     this.#client.on("error", (err) => {
@@ -238,12 +234,12 @@ export default class FoxgloveWebSocketPlayer implements Player {
         (err as unknown as undefined | { message?: string })?.message != undefined &&
         err.message.includes("insecure WebSocket connection")
       ) {
-        this.#problems.addProblem("ws:connection-failed", {
+        this.#alerts.addAlert("ws:connection-failed", {
           severity: "error",
           message: "Insecure WebSocket connection",
           tip: `Check that the WebSocket server at ${
             this.#url
-          } is reachable and supports protocol version ${FoxgloveClient.SUPPORTED_SUBPROTOCOL}.`,
+          } is reachable and supports protocol version one of: ${subprotocols.join(", ")}.`,
         });
         this.#emitState();
       }
@@ -270,12 +266,12 @@ export default class FoxgloveWebSocketPlayer implements Player {
       this.#client?.close();
       this.#client = undefined;
 
-      this.#problems.addProblem("ws:connection-failed", {
+      this.#alerts.addAlert("ws:connection-failed", {
         severity: "error",
         message: "Connection failed",
         tip: `Check that the WebSocket server at ${
           this.#url
-        } is reachable and supports protocol version ${FoxgloveClient.SUPPORTED_SUBPROTOCOL}.`,
+        } is reachable and supports protocol version one of: ${subprotocols.join(", ")}.`,
       });
 
       this.#emitState();
@@ -284,7 +280,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
 
     this.#client.on("serverInfo", (event) => {
       if (!Array.isArray(event.capabilities)) {
-        this.#problems.addProblem("ws:invalid-capabilities", {
+        this.#alerts.addAlert("ws:invalid-capabilities", {
           severity: "warn",
           message: `Server sent an invalid or missing capabilities field: '${event.capabilities}'`,
         });
@@ -338,14 +334,14 @@ export default class FoxgloveWebSocketPlayer implements Player {
           SUPPORTED_SERVICE_ENCODINGS.includes(e),
         );
 
-        const problemId = "callService:unsupportedEncoding";
+        const alertId = "callService:unsupportedEncoding";
         if (this.#serviceCallEncoding) {
           this.#playerCapabilities = this.#playerCapabilities.concat(
             PLAYER_CAPABILITIES.callServices,
           );
-          this.#problems.removeProblem(problemId);
+          this.#alerts.removeAlert(alertId);
         } else {
-          this.#problems.addProblem(problemId, {
+          this.#alerts.addAlert(alertId, {
             severity: "warn",
             message: `Calling services is disabled as no compatible encoding could be found. \
             The server supports [${event.supportedEncodings?.join(", ")}], \
@@ -389,17 +385,17 @@ export default class FoxgloveWebSocketPlayer implements Player {
         log.error(msg);
       }
 
-      const problem: PlayerProblem = {
+      const alert: PlayerAlert = {
         message: event.message,
-        severity: statusLevelToProblemSeverity(event.level),
+        severity: statusLevelToAlertSeverity(event.level),
       };
 
       if (event.message === "Send buffer limit reached") {
-        problem.tip =
+        alert.tip =
           "Server is dropping messages to the client. Check if you are subscribing to large or frequent topics or adjust your server send buffer limit.";
       }
 
-      this.#problems.addProblem(event.message, problem);
+      this.#alerts.addAlert(event.message, alert);
       this.#emitState();
     });
 
@@ -458,7 +454,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
           });
         } catch (error) {
           this.#unsupportedChannelIds.add(channel.id);
-          this.#problems.addProblem(`schema:${channel.topic}`, {
+          this.#alerts.addAlert(`schema:${channel.topic}`, {
             severity: "error",
             message: `Failed to parse channel schema on ${channel.topic}`,
             error,
@@ -468,7 +464,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
         }
         const existingChannel = this.#channelsByTopic.get(channel.topic);
         if (existingChannel && !_.isEqual(channel, existingChannel.channel)) {
-          this.#problems.addProblem(`duplicate-topic:${channel.topic}`, {
+          this.#alerts.addAlert(`duplicate-topic:${channel.topic}`, {
             severity: "error",
             message: `Multiple channels advertise the same topic: ${channel.topic} (${existingChannel.channel.id} and ${channel.id})`,
           });
@@ -489,7 +485,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
         const chanInfo = this.#channelsById.get(id);
         if (!chanInfo) {
           if (!this.#unsupportedChannelIds.delete(id)) {
-            this.#problems.addProblem(`unadvertise:${id}`, {
+            this.#alerts.addAlert(`unadvertise:${id}`, {
               severity: "error",
               message: `Server unadvertised channel ${id} that was not advertised`,
             });
@@ -517,7 +513,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       if (!chanInfo) {
         const wasRecentlyCanceled = this.#recentlyCanceledSubscriptions.has(subscriptionId);
         if (!wasRecentlyCanceled) {
-          this.#problems.addProblem(`message-missing-subscription:${subscriptionId}`, {
+          this.#alerts.addAlert(`message-missing-subscription:${subscriptionId}`, {
             severity: "warn",
             message: `Received message on unknown subscription id: ${subscriptionId}. This might be a WebSocket server bug.`,
           });
@@ -549,7 +545,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
         });
         this.#parsedMessagesBytes += sizeInBytes;
         if (this.#parsedMessagesBytes > CURRENT_FRAME_MAXIMUM_SIZE_BYTES) {
-          this.#problems.addProblem(`webSocketPlayer:parsedMessageCacheFull`, {
+          this.#alerts.addAlert(`webSocketPlayer:parsedMessageCacheFull`, {
             severity: "error",
             message: `WebSocketPlayer maximum frame size (${(
               CURRENT_FRAME_MAXIMUM_SIZE_BYTES / 1_000_000
@@ -579,8 +575,25 @@ export default class FoxgloveWebSocketPlayer implements Player {
         }
         stats.numMessages++;
         this.#topicsStats = topicStats;
+
+        if (!this.#ishighFrequencyMessage) {
+          const duration =
+            this.#startTime && this.#endTime ? subtract(this.#endTime, this.#startTime) : undefined;
+          this.#ishighFrequencyMessage = isTopicHighFrequency({
+            topicStats: this.#topicsStats,
+            topic: { name: topic, schemaName: chanInfo.channel.schemaName },
+            duration,
+          });
+          if (this.#ishighFrequencyMessage) {
+            this.#alerts.addAlert(HIGH_FREQUENCY_ALERT.id, {
+              severity: HIGH_FREQUENCY_ALERT.severity,
+              message: HIGH_FREQUENCY_ALERT.message,
+              error: new Error(HIGH_FREQUENCY_ALERT.errorMessage),
+            });
+          }
+        }
       } catch (error) {
-        this.#problems.addProblem(`message:${chanInfo.channel.topic}`, {
+        this.#alerts.addAlert(`message:${chanInfo.channel.topic}`, {
           severity: "error",
           message: `Failed to parse message on ${chanInfo.channel.topic}`,
           error,
@@ -599,6 +612,13 @@ export default class FoxgloveWebSocketPlayer implements Player {
         this.#numTimeSeeks++;
         this.#parsedMessages = [];
         this.#parsedMessagesBytes = 0;
+      }
+
+      // Override any previous start/end time when we set a clockTime for the first time which means
+      // we've received the first "time" event and know the server controlled time.
+      if (!this.#clockTime) {
+        this.#startTime = time;
+        this.#endTime = time;
       }
 
       this.#clockTime = time;
@@ -659,7 +679,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       }
 
       for (const service of services) {
-        const serviceProblemId = `service:${service.id}`;
+        const serviceAlertId = `service:${service.id}`;
         // If not explicitly given, derive request / response type name from the service type
         // (according to ROS convention).
         const requestType = service.request?.schemaName ?? `${service.type}_Request`;
@@ -667,10 +687,22 @@ export default class FoxgloveWebSocketPlayer implements Player {
         const requestMsgEncoding = service.request?.encoding ?? this.#serviceCallEncoding;
         const responseMsgEncoding = service.response?.encoding ?? this.#serviceCallEncoding;
 
+        // Note: The `requestSchema` and `responseSchema` fields are deprecated in @foxglove/ws-protocol.
+        // However, they are still required for compatibility with Foxglove Bridge.
+        // We are temporarily reintroducing support for these fields to avoid blocking users.
+        // This usage should be removed once Foxglove Bridge transitions away from these deprecated fields.
         try {
-          if (service.request == undefined || service.response == undefined) {
+          if (
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            (service.request == undefined && service.requestSchema == undefined) ||
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            (service.response == undefined && service.responseSchema == undefined)
+          ) {
             throw new Error("Invalid service definition, at least one required field is missing");
-          } else if (!defaultSchemaEncoding) {
+          } else if (
+            !defaultSchemaEncoding &&
+            (service.request == undefined || service.response == undefined)
+          ) {
             throw new Error("Cannot determine service request or response schema encoding");
           } else if (!SUPPORTED_SERVICE_ENCODINGS.includes(requestMsgEncoding)) {
             const supportedEncodingsStr = SUPPORTED_SERVICE_ENCODINGS.join(", ");
@@ -685,8 +717,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
               messageEncoding: requestMsgEncoding,
               schema: {
                 name: requestType,
-                encoding: service.request.schemaEncoding,
-                data: textEncoder.encode(service.request.schema),
+                encoding: service.request?.schemaEncoding ?? defaultSchemaEncoding,
+                // eslint-disable-next-line @typescript-eslint/no-deprecated
+                data: textEncoder.encode(service.request?.schema ?? service.requestSchema),
               },
             },
             parseChannelOptions,
@@ -696,8 +729,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
               messageEncoding: responseMsgEncoding,
               schema: {
                 name: responseType,
-                encoding: service.response.schemaEncoding,
-                data: textEncoder.encode(service.response.schema),
+                encoding: service.response?.schemaEncoding ?? defaultSchemaEncoding,
+                // eslint-disable-next-line @typescript-eslint/no-deprecated
+                data: textEncoder.encode(service.response?.schema ?? service.responseSchema),
               },
             },
             parseChannelOptions,
@@ -729,9 +763,23 @@ export default class FoxgloveWebSocketPlayer implements Player {
             requestMessageWriter,
           };
           this.#servicesByName.set(service.name, resolvedService);
-          this.#problems.removeProblem(serviceProblemId);
+          this.#alerts.removeAlert(serviceAlertId);
+
+          // Issue a warning to users if the service relies on deprecated fields (`requestSchema` or `responseSchema`).
+          // This highlights the need for migration, as these fields will be removed in future versions.
+
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
+          if (service.requestSchema || service.responseSchema) {
+            this.#alerts.addAlert(serviceAlertId, {
+              severity: "warn",
+              message: `Service ${service.name}`,
+              error: new Error(
+                "requestSchema and responseSchema are deprecated and will not be supported in future versions of Lichtblick",
+              ),
+            });
+          }
         } catch (error) {
-          this.#problems.addProblem(serviceProblemId, {
+          this.#alerts.addAlert(serviceAlertId, {
             severity: "error",
             message: `Failed to parse service ${service.name}`,
             error,
@@ -750,8 +798,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
         if (service) {
           this.#servicesByName.delete(service.service.name);
         }
-        const serviceProblemId = `service:${serviceId}`;
-        needsStateUpdate = this.#problems.removeProblem(serviceProblemId) || needsStateUpdate;
+        const serviceAlertId = `service:${serviceId}`;
+        needsStateUpdate = this.#alerts.removeAlert(serviceAlertId) || needsStateUpdate;
       }
       if (needsStateUpdate) {
         this.#emitState();
@@ -761,7 +809,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#client.on("serviceCallResponse", (response) => {
       const responseCallback = this.#serviceResponseCbs.get(response.callId);
       if (!responseCallback) {
-        this.#problems.addProblem(`callService:${response.callId}`, {
+        this.#alerts.addAlert(`callService:${response.callId}`, {
           severity: "error",
           message: `Received a response for a service for which no callback was registered`,
         });
@@ -855,7 +903,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
         profile: undefined,
         playerId: this.#id,
         activeData: undefined,
-        problems: this.#problems.problems(),
+        alerts: this.#alerts.alerts(),
         urlState: this.#urlState,
       });
     }
@@ -878,7 +926,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       capabilities: this.#playerCapabilities,
       profile: this.#profile,
       playerId: this.#id,
-      problems: this.#problems.problems(),
+      alerts: this.#alerts.alerts(),
       urlState: this.#urlState,
 
       activeData: {
@@ -1030,7 +1078,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       throw new Error(`Attempted to set parameters without a valid Foxglove WebSocket connection`);
     }
 
-    log.debug(`FoxgloveWebSocketPlayer.setParameter(key=${key}, value=${value})`);
+    log.debug(`FoxgloveWebSocketPlayer.setParameter(key=${key}, value=${JSON.stringify(value)})`);
     const isByteArray = value instanceof Uint8Array;
     const paramValueToSent = isByteArray ? btoa(textDecoder.decode(value)) : value;
     this.#client.setParameters(
@@ -1067,7 +1115,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
           : value;
       };
       const message = Buffer.from(JSON.stringify(msg, replacer) ?? "");
-      this.#client.sendMessage(clientChannel.id, message);
+      this.#client.sendMessage(clientChannel.id, new Uint8Array(message));
     } else if (
       ROS_ENCODINGS.includes(clientChannel.encoding) &&
       clientChannel.messageWriter != undefined
@@ -1115,7 +1163,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
           const data = parsedResponse.deserialize(response.data);
           resolve(data as Record<string, unknown>);
         } catch (error: unknown) {
-          reject(error as Error);
+          reject(error instanceof Error ? error : new Error(String(error)));
         }
       });
     });
@@ -1167,6 +1215,11 @@ export default class FoxgloveWebSocketPlayer implements Player {
 
   public setGlobalVariables(): void {}
 
+  public getBatchIterator(): undefined {
+    // FoxgloveWebSocketPlayer does not support batch iteration
+    return undefined;
+  }
+
   // Return the current time
   //
   // For servers which publish a clock, we return that time. If the server disconnects we continue
@@ -1192,7 +1245,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       return;
     }
 
-    this.#problems.removeProblems((id) => id.startsWith("pub:"));
+    this.#alerts.removeAlerts((id) => id.startsWith("pub:"));
 
     for (const publication of this.#unresolvedPublications) {
       this.#advertiseChannel(publication);
@@ -1213,11 +1266,11 @@ export default class FoxgloveWebSocketPlayer implements Player {
 
     const { topic, schemaName, options } = publication;
 
-    const encodingProblemId = `pub:encoding:${topic}`;
-    const msgdefProblemId = `pub:msgdef:${topic}`;
+    const encodingAlertId = `pub:encoding:${topic}`;
+    const msgdefAlertId = `pub:msgdef:${topic}`;
 
     if (!encoding) {
-      this.#problems.addProblem(encodingProblemId, {
+      this.#alerts.addAlert(encodingAlertId, {
         severity: "warn",
         message: `Cannot advertise topic '${topic}': Server does not support one of the following encodings for client-side publishing: ${SUPPORTED_PUBLICATION_ENCODINGS}`,
       });
@@ -1237,7 +1290,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
         msgdef = rosDatatypesToMessageDefinition(datatypes, schemaName);
       } catch (error) {
         log.debug(error);
-        this.#problems.addProblem(msgdefProblemId, {
+        this.#alerts.addAlert(msgdefAlertId, {
           severity: "warn",
           message: `Unknown message definition for "${topic}"`,
           tip: `Try subscribing to the topic "${topic}" before publishing to it`,
@@ -1258,9 +1311,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
       messageWriter,
     });
 
-    for (const problemId of [encodingProblemId, msgdefProblemId]) {
-      if (this.#problems.hasProblem(problemId)) {
-        this.#problems.removeProblem(problemId);
+    for (const alertId of [encodingAlertId, msgdefAlertId]) {
+      if (this.#alerts.hasAlert(alertId)) {
+        this.#alerts.removeAlert(alertId);
       }
     }
   }
@@ -1272,10 +1325,10 @@ export default class FoxgloveWebSocketPlayer implements Player {
 
     this.#client.unadvertise(channel.id);
     this.#publicationsByTopic.delete(channel.topic);
-    const problemIds = [`pub:encoding:${channel.topic}`, `pub:msgdef:${channel.topic}`];
-    for (const problemId of problemIds) {
-      if (this.#problems.hasProblem(problemId)) {
-        this.#problems.removeProblem(problemId);
+    const alertIds = [`pub:encoding:${channel.topic}`, `pub:msgdef:${channel.topic}`];
+    for (const alertId of alertIds) {
+      if (this.#alerts.hasAlert(alertId)) {
+        this.#alerts.removeAlert(alertId);
       }
     }
   }
@@ -1287,7 +1340,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#topicsStats = new Map();
     this.#parsedMessages = [];
     this.#receivedBytes = 0;
-    this.#problems.clear();
+    this.#alerts.clear();
     this.#parameters = new Map();
     this.#fetchedAssets.clear();
     for (const [requestId, callback] of this.#fetchAssetRequests) {
@@ -1309,14 +1362,12 @@ export default class FoxgloveWebSocketPlayer implements Player {
     for (const [name, types] of datatypes) {
       const knownTypes = this.#datatypes.get(name);
       if (knownTypes && !isMsgDefEqual(types, knownTypes)) {
-        this.#problems.addProblem(`schema-changed-${name}`, {
+        this.#alerts.addAlert(`schema-changed-${name}`, {
           message: `Definition of schema '${name}' has changed during the server's runtime`,
           severity: "error",
         });
       } else {
-        if (updatedDatatypes == undefined) {
-          updatedDatatypes = new Map(this.#datatypes);
-        }
+        updatedDatatypes ??= new Map(this.#datatypes);
         updatedDatatypes.set(name, types);
 
         const fullTypeName = dataTypeToFullName(name);
@@ -1331,23 +1382,5 @@ export default class FoxgloveWebSocketPlayer implements Player {
     if (updatedDatatypes != undefined) {
       this.#datatypes = updatedDatatypes; // Signal that datatypes changed.
     }
-  }
-}
-
-function dataTypeToFullName(dataType: string): string {
-  const parts = dataType.split("/");
-  if (parts.length === 2) {
-    return `${parts[0]}/msg/${parts[1]}`;
-  }
-  return dataType;
-}
-
-function statusLevelToProblemSeverity(level: StatusLevel): PlayerProblem["severity"] {
-  if (level === StatusLevel.INFO) {
-    return "info";
-  } else if (level === StatusLevel.WARNING) {
-    return "warn";
-  } else {
-    return "error";
   }
 }

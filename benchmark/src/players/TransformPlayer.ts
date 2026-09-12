@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -11,20 +11,12 @@ import Log from "@lichtblick/log";
 import * as rostime from "@lichtblick/rostime";
 import { Time } from "@lichtblick/rostime";
 import { MessageEvent } from "@lichtblick/suite";
-import { GlobalVariables } from "@lichtblick/suite-base/hooks/useGlobalVariables";
-import {
-  AdvertiseOptions,
-  Player,
-  PlayerPresence,
-  PlayerState,
-  PublishPayload,
-  SubscribePayload,
-  Topic,
-  TopicStats,
-} from "@lichtblick/suite-base/players/types";
+import { Player, PlayerPresence, Topic, TopicStats } from "@lichtblick/suite-base/players/types";
 import { RosDatatypes } from "@lichtblick/suite-base/types/RosDatatypes";
+import { basicDatatypes } from "@lichtblick/suite-base/util/basicDatatypes";
 import { Quaternion } from "@lichtblick/suite-base/util/geometry";
 
+import { BenchmarkPlayerBase } from "./BenchmarkPlayerBase";
 import { now } from "./time";
 import { BenchmarkStats } from "../BenchmarkStats";
 
@@ -33,57 +25,20 @@ const log = Log.getLogger(__filename);
 const TRANSFORMS_PER_TICK = 50;
 const CAPABILITIES: string[] = [];
 
-class TransformPlayer implements Player {
-  #name: string = "transform";
-  #listener?: (state: PlayerState) => Promise<void>;
-  #datatypes: RosDatatypes = new Map();
+class TransformPlayer extends BenchmarkPlayerBase implements Player {
+  readonly #name: string = "transform";
+  // basicDatatypes already resolves foxglove.FrameTransform's nested Vector3/Quaternion types
+  readonly #datatypes: RosDatatypes = new Map(basicDatatypes);
 
   public constructor() {
-    this.#datatypes.set("Time", {
-      definitions: [
-        { name: "sec", type: "uint32" },
-        { name: "nsec", type: "uint32" },
-      ],
-    });
-
-    this.#datatypes.set("foxglove.FrameTransform", {
-      name: "foxglove.FrameTransform",
-      definitions: [
-        { name: "timestamp", type: "Time", isComplex: true },
-        { name: "parent_frame_id", type: "string" },
-        { name: "child_frame_id", type: "string" },
-        { name: "translation", type: "Vector3", isComplex: true },
-        { name: "rotation", type: "Quaternion", isComplex: true },
-      ],
-    });
+    super();
+    if (!this.#datatypes.has("foxglove.FrameTransform")) {
+      throw new Error("Invariant: basicDatatypes is missing 'foxglove.FrameTransform'");
+    }
   }
 
-  public setListener(listener: (state: PlayerState) => Promise<void>): void {
-    this.#listener = listener;
-    void this.#run();
-  }
-  public close(): void {
-    // no-op
-  }
-  public setSubscriptions(_subscriptions: SubscribePayload[]): void {}
-  public setPublishers(_publishers: AdvertiseOptions[]): void {
-    // no-op
-  }
-  public setParameter(_key: string, _value: unknown): void {
-    throw new Error("Method not implemented.");
-  }
-  public publish(_request: PublishPayload): void {
-    throw new Error("Method not implemented.");
-  }
-  public async callService(_service: string, _request: unknown): Promise<unknown> {
-    throw new Error("Method not implemented.");
-  }
-  public setGlobalVariables(_globalVariables: GlobalVariables): void {
-    throw new Error("Method not implemented.");
-  }
-
-  async #run() {
-    const listener = this.#listener;
+  protected async run(): Promise<void> {
+    const listener = this.listener;
     if (!listener) {
       throw new Error("Invariant: listener is not set");
     }
@@ -112,9 +67,7 @@ class TransformPlayer implements Player {
       const messages: MessageEvent<FrameTransform>[] = [];
       const timestamp = now();
 
-      if (!startTime) {
-        startTime = timestamp;
-      }
+      startTime ??= timestamp;
 
       messages.push({
         receiveTime: timestamp,

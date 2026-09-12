@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -8,13 +8,14 @@
 import * as IDB from "idb/with-async-ittr";
 
 import Log from "@lichtblick/log";
+import { KEY_WORKSPACE_PREFIX } from "@lichtblick/suite-base/constants/browserStorageKeys";
 import { LayoutID } from "@lichtblick/suite-base/context/CurrentLayoutContext";
 import { ILayoutStorage, Layout } from "@lichtblick/suite-base/services/ILayoutStorage";
 import { migrateLayout } from "@lichtblick/suite-base/services/migrateLayout";
 
 const log = Log.getLogger(__filename);
 
-const DATABASE_NAME = "foxglove-layouts";
+const DATABASE_NAME = `${KEY_WORKSPACE_PREFIX}lichtblick-layouts`;
 const OBJECT_STORE_NAME = "layouts";
 
 interface LayoutsDB extends IDB.DBSchema {
@@ -46,9 +47,11 @@ export class IdbLayoutStorage implements ILayoutStorage {
 
   public async list(namespace: string): Promise<readonly Layout[]> {
     const results: Layout[] = [];
-    const records = await (
-      await this.#db
-    ).getAllFromIndex(OBJECT_STORE_NAME, "namespace", namespace);
+    const records = await (await this.#db).getAllFromIndex(
+      OBJECT_STORE_NAME,
+      "namespace",
+      namespace,
+    );
     for (const record of records) {
       try {
         results.push(migrateLayout(record.layout));
@@ -80,13 +83,27 @@ export class IdbLayoutStorage implements ILayoutStorage {
     fromNamespace: string;
     toNamespace: string;
   }): Promise<void> {
-    const tx = (await this.#db).transaction("layouts", "readwrite");
-    const store = tx.objectStore("layouts");
+    const db = await this.#db;
 
     try {
-      for await (const cursor of store.index("namespace").iterate(fromNamespace)) {
-        await store.put({ namespace: toNamespace, layout: cursor.value.layout });
-        await cursor.delete();
+      const tx = db.transaction(OBJECT_STORE_NAME, "readwrite");
+      const store = tx.objectStore(OBJECT_STORE_NAME);
+      const namespaceIndex = store.index("namespace");
+
+      // Read inside the same readwrite transaction so a concurrent writer cannot insert a
+      // conflicting layout between the read and write phases. Use getAll (not a cursor) to keep
+      // snapshot reads without triggering the cursor auto-commit issue.
+      const targetRecords = await namespaceIndex.getAll(toNamespace);
+      const existingNames = new Set(targetRecords.map(({ layout }) => layout.name));
+      const sourceRecords = await namespaceIndex.getAll(fromNamespace);
+
+      for (const { layout } of sourceRecords) {
+        // Skip layouts whose name already exists in the target namespace to avoid duplicates.
+        if (!existingNames.has(layout.name)) {
+          await store.put({ namespace: toNamespace, layout });
+          existingNames.add(layout.name);
+        }
+        await store.delete([fromNamespace, layout.id]);
       }
       await tx.done;
     } catch (error) {

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -27,8 +27,7 @@ const JOINT_TYPES = ["fixed", "continuous", "revolute", "planar", "prismatic", "
 
 export function parseUrdf(xml: XMLDocument | string): UrdfRobot {
   const parser = new DOMParser();
-  const urdf =
-    xml instanceof XMLDocument ? xml : (parser.parseFromString(xml, "text/xml") as XMLDocument);
+  const urdf = xml instanceof XMLDocument ? xml : parser.parseFromString(xml, "text/xml");
 
   for (let i = 0; i < urdf.children.length; i++) {
     const child = urdf.children[i]!;
@@ -393,6 +392,7 @@ function parseFloatAttributeOptional(xml: Element, attribName: string): number |
 }
 
 function parseFloatContent(xml: Element): number {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   if (xml.textContent == undefined) {
     throw new Error(`expected float value in "${xml}"`);
   }

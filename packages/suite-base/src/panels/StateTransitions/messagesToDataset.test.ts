@@ -1,12 +1,12 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 import { MessageEvent } from "@lichtblick/suite";
 import { MessageAndData } from "@lichtblick/suite-base/components/MessagePathSyntax/useCachedGetMessagePathDataItems";
-import BasicBuilder from "@lichtblick/suite-base/testing/builders/BasicBuilder";
 import MessageEventBuilder from "@lichtblick/suite-base/testing/builders/MessageEventBuilder";
 import RosTimeBuilder from "@lichtblick/suite-base/testing/builders/RosTimeBuilder";
 import { TimestampMethod } from "@lichtblick/suite-base/util/time";
+import { BasicBuilder } from "@lichtblick/test-builders";
 
 import {
   extractQueriedData,
@@ -401,6 +401,26 @@ describe("messagesToDataset", () => {
     expect(result.data.length).toBe(0);
   });
 
+  it("should treat a null value as a gap and emit a NaN datum", () => {
+    const blocks: MessageAndData[][] = [
+      [
+        {
+          messageEvent,
+          queriedData: [{ value: null, path: queriedDataPath }],
+        },
+      ],
+    ];
+    const argsDataset: MessageDatasetArgs = {
+      ...args,
+      path: { ...args.path, timestampMethod: "receiveTime" },
+      blocks,
+    };
+
+    const result = messagesToDataset(argsDataset);
+
+    expect(result.data).toEqual([{ x: expect.any(Number), y: NaN }]);
+  });
+
   it("should not assign a label to repeated consecutive data points", () => {
     const messageAndData = {
       messageEvent,
@@ -495,5 +515,30 @@ describe("messagesToDataset", () => {
     });
 
     expect(result.data.length).toBe(2);
+  });
+
+  it("should preserve the pending state before a gap", () => {
+    const repeatedValue = BasicBuilder.number();
+    const messageAndData = {
+      messageEvent,
+      queriedData: [{ value: repeatedValue, path: queriedDataPath }],
+    };
+    const gap = {
+      messageEvent,
+      queriedData: [{ value: null, path: queriedDataPath }],
+    };
+
+    const result = messagesToDataset({
+      ...args,
+      blocks: [[messageAndData, messageAndData, gap]],
+      path: { ...args.path, timestampMethod: "receiveTime" },
+      showPoints: false,
+    });
+
+    expect(result.data).toEqual([
+      expect.objectContaining({ value: repeatedValue }),
+      expect.objectContaining({ value: repeatedValue }),
+      { x: expect.any(Number), y: NaN },
+    ]);
   });
 });

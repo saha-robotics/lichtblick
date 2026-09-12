@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -7,7 +7,7 @@
 
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import { Button, ButtonGroup, ButtonProps, Stack } from "@mui/material";
-import { Meta, StoryObj } from "@storybook/react";
+import { Meta, StoryObj } from "@storybook/react-webpack5";
 
 const variants: ButtonProps["variant"][] = ["text", "outlined", "contained"];
 const sizes: ButtonProps["size"][] = ["small", "medium", "large"];
@@ -36,7 +36,7 @@ export default {
   parameters: {
     colorScheme: "both-column",
   },
-} satisfies Meta<typeof ButtonGroup>;
+} satisfies Meta;
 
 const buttons = [
   <Button key="one">One</Button>,

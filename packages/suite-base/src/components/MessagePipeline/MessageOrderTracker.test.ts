@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -54,27 +54,27 @@ const playerStateWithMessages = (messages: any): PlayerState => ({
 const message = (
   headerStampSeconds: number | undefined,
   receiveTimeSeconds: number | undefined,
-): MessageEvent => ({
-  topic: "/foo",
-  receiveTime:
-    receiveTimeSeconds == undefined ? undefined : ({ sec: receiveTimeSeconds, nsec: 1 } as any),
-  message: {
-    header:
-      headerStampSeconds == undefined ? undefined : { stamp: { sec: headerStampSeconds, nsec: 1 } },
-  },
-  schemaName: "visualization_msgs/Marker",
-  sizeInBytes: 0,
-});
+): MessageEvent =>
+  ({
+    topic: "/foo",
+    receiveTime: receiveTimeSeconds == undefined ? undefined : { sec: receiveTimeSeconds, nsec: 1 },
+    message: {
+      header:
+        headerStampSeconds == undefined
+          ? undefined
+          : { stamp: { sec: headerStampSeconds, nsec: 1 } },
+    },
+    schemaName: "visualization_msgs/Marker",
+    sizeInBytes: 0,
+  }) as MessageEvent;
 
 describe("MessagePipeline/MessageOrderTracker", () => {
   describe("when expecting messages ordered by receive time", () => {
     it("report error when messages are out of order", () => {
       const orderTracker = new MessageOrderTracker();
-      const problems = orderTracker.update(
-        playerStateWithMessages([message(7, 10), message(8, 9)]),
-      );
+      const alerts = orderTracker.update(playerStateWithMessages([message(7, 10), message(8, 9)]));
 
-      expect(problems).toEqual([
+      expect(alerts).toEqual([
         {
           error: new Error(
             "Processed a message on /foo at 9.000000001 which is earlier than last processed message on /foo at 10.000000001.",
@@ -88,8 +88,8 @@ describe("MessagePipeline/MessageOrderTracker", () => {
     it("does not report an error when messages are in order", () => {
       const orderTracker = new MessageOrderTracker();
       const playerState = playerStateWithMessages([message(8, 9), message(7, 10)]);
-      const problems = orderTracker.update(playerState);
-      expect(problems).toEqual([]);
+      const alerts = orderTracker.update(playerState);
+      expect(alerts).toEqual([]);
     });
   });
 });

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -116,10 +116,7 @@ export class RenderableMarker extends Renderable<MarkerUserData> {
   }
 
   #renderMarker(marker: Marker): Marker {
-    const topicName = this.userData.topic;
-    const settings = this.renderer.config.topics[topicName] as
-      | Partial<LayerSettingsMarker>
-      | undefined;
+    const settings = this.getSettings();
     const colorStr = settings?.color;
 
     if (colorStr == undefined) {

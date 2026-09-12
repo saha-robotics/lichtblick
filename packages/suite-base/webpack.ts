@@ -1,14 +1,16 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { ESBuildMinifyPlugin } from "esbuild-loader";
+import dotenv from "dotenv";
+import { EsbuildPlugin } from "esbuild-loader";
 import ForkTsCheckerWebpackPlugin from "fork-ts-checker-webpack-plugin";
 import MonacoWebpackPlugin from "monaco-editor-webpack-plugin";
-import path from "path";
+import { createRequire as _nodeCreateRequire } from "node:module";
+import { fileURLToPath as _nodeFileURLToPath, pathToFileURL as _nodePathToFileURL } from "node:url";
 import ReactRefreshTypescript from "react-refresh-typescript";
 import ts from "typescript";
 import webpack, { Configuration } from "webpack";
@@ -16,6 +18,34 @@ import webpack, { Configuration } from "webpack";
 import { createTssReactNameTransformer } from "@lichtblick/typescript-transformers";
 
 import { WebpackArgv } from "./WebpackArgv";
+
+// In CJS (ts-node / webpack-cli), __dirname is injected by Node's module wrapper.
+// In ESM (Storybook 10+), __dirname is undefined; callers must provide `packageDir`.
+// We avoid import.meta.url here to stay compatible with "module: commonjs" TypeScript compilation
+// (e.g. webpack-cli's ts-node with the root tsconfig) and Node.js 24's loadESMFromCJS detection.
+// eslint-disable-next-line no-var, no-underscore-dangle
+declare var __dirname: string | undefined;
+
+let currentDirHref: string | undefined;
+let localRequireInstance: NodeRequire | undefined;
+
+function initModuleLocals(packageDir: string | undefined): void {
+  if (currentDirHref != undefined) {
+    return;
+  }
+  const dir = packageDir ?? __dirname;
+  if (dir == undefined) {
+    throw new Error(
+      "makeConfig: cannot determine the @lichtblick/suite-base package directory. " +
+        "Pass the `packageDir` option when calling makeConfig in ESM environments.",
+    );
+  }
+  const dirHref = _nodePathToFileURL(dir + "/").href;
+  currentDirHref = dirHref;
+  localRequireInstance = _nodeCreateRequire(dir + "/package.json");
+  // Load environment variables from .env.local
+  dotenv.config({ path: _nodeFileURLToPath(new URL("../../.env", dirHref)) });
+}
 
 type Options = {
   // During hot reloading and development it is useful to comment out code while iterating.
@@ -26,7 +56,19 @@ type Options = {
   version: string;
   /** Specify the path to the tsconfig.json file for ForkTsCheckerWebpackPlugin. If unset, the plugin defaults to finding the config file in the webpack `context` directory. */
   tsconfigPath?: string;
+  /**
+   * Absolute path to the @lichtblick/suite-base package directory.
+   * Required in ESM environments (e.g. Storybook) where __dirname is not available.
+   * Example: `new URL("../packages/suite-base", import.meta.url).pathname`
+   */
+  packageDir?: string;
 };
+
+function buildEnvVars(): Record<string, string | undefined> {
+  return {
+    "process.env.DEV_WORKSPACE": JSON.stringify(process.env.DEV_WORKSPACE),
+  };
+}
 
 // Create a partial webpack configuration required to build app using webpack.
 // Returns a webpack configuration containing resolve, module, plugins, and node fields.
@@ -34,7 +76,15 @@ export function makeConfig(
   _: unknown,
   argv: WebpackArgv,
   options: Options,
-): Pick<Configuration, "resolve" | "module" | "optimization" | "plugins" | "node"> {
+): Pick<
+  Configuration,
+  "resolve" | "module" | "optimization" | "plugins" | "node" | "ignoreWarnings"
+> {
+  initModuleLocals(options.packageDir);
+  // After initModuleLocals, currentDirHref and localRequireInstance are guaranteed to be set.
+  const dirHref = currentDirHref!;
+  const localRequire = localRequireInstance!;
+
   const isDev = argv.mode === "development";
   const isServe = argv.env?.WEBPACK_SERVE ?? false;
 
@@ -44,15 +94,15 @@ export function makeConfig(
     resolve: {
       extensions: [".js", ".ts", ".jsx", ".tsx"],
       alias: {
-        "@lichtblick/suite-base": path.resolve(__dirname, "src"),
+        "@lichtblick/suite-base": _nodeFileURLToPath(new URL("src", dirHref)),
       },
       fallback: {
-        path: require.resolve("path-browserify"),
-        stream: require.resolve("readable-stream"),
+        path: localRequire.resolve("path-browserify"), // foxglove-depcheck-used: path-browserify
+        stream: localRequire.resolve("readable-stream"), // foxglove-depcheck-used: readable-stream
         assert: false,
-        zlib: require.resolve("browserify-zlib"),
-        crypto: require.resolve("crypto-browserify"),
-        vm: require.resolve("vm-browserify"),
+        zlib: localRequire.resolve("browserify-zlib"), // foxglove-depcheck-used: browserify-zlib
+        crypto: localRequire.resolve("crypto-browserify"), // foxglove-depcheck-used: crypto-browserify
+        vm: localRequire.resolve("vm-browserify"), // foxglove-depcheck-used: vm-browserify
 
         // TypeScript tries to use this when running in node
         perf_hooks: false,
@@ -212,7 +262,7 @@ export function makeConfig(
       removeAvailableModules: true,
 
       minimizer: [
-        new ESBuildMinifyPlugin({
+        new EsbuildPlugin({
           target: "es2022",
           minify: true,
         }),
@@ -229,8 +279,11 @@ export function makeConfig(
       }),
       new webpack.DefinePlugin({
         // Should match webpack-defines.d.ts
-        ReactNull: null, // eslint-disable-line no-restricted-syntax
+        ReactNull: null,
         LICHTBLICK_SUITE_VERSION: JSON.stringify(version),
+        API_URL: JSON.stringify(process.env.API_URL),
+        DEV_WORKSPACE: JSON.stringify(process.env.DEV_WORKSPACE),
+        ...buildEnvVars(),
       }),
       // https://webpack.js.org/plugins/ignore-plugin/#example-of-ignoring-moment-locales
       new webpack.IgnorePlugin({
@@ -262,5 +315,15 @@ export function makeConfig(
       __dirname: true,
       __filename: true,
     },
+    ignoreWarnings: [
+      {
+        module: /node_modules\/typescript\/lib\/typescript\.js$/,
+        message: /Critical dependency: the request of a dependency is an expression/,
+      },
+      {
+        module: /node_modules\/@protobufjs\/inquire\/index\.js$/,
+        message: /Critical dependency: the request of a dependency is an expression/,
+      },
+    ],
   };
 }

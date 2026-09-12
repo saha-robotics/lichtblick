@@ -1,11 +1,11 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { StoryObj } from "@storybook/react";
+import { StoryObj } from "@storybook/react-webpack5";
 import { fireEvent, userEvent, within } from "@storybook/testing-library";
 
 import Table from "@lichtblick/suite-base/panels/Table";
@@ -15,13 +15,16 @@ import PanelSetup, { Fixture } from "@lichtblick/suite-base/stories/PanelSetup";
 const makeArrayData = ({
   length = 50,
   nestArray = true,
-}: { length?: number; nestArray?: boolean } = {}): unknown => {
+}: {
+  length?: number;
+  nestArray?: boolean;
+} = {}): unknown => {
   return new Array(length).fill(0).map((_, i) => {
     return {
       val: i,
       bool: true,
       str: `${i}-abcd-edfg`,
-      n: null, // eslint-disable-line no-restricted-syntax
+      n: null,
       u: undefined,
       obj: {
         date: new Date(`2020-01-${i}`),

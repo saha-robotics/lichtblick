@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -109,6 +109,15 @@ export class SceneExtension<
     }
     this.renderables.clear();
     this.updateSettingsTree();
+  }
+
+  /**
+   * Resolves once any in-flight asynchronous video decodes started by this extension have settled.
+   * Overridden by image extensions to gate the panel frame barrier on a seek; the default is a
+   * no-op for extensions that do not decode video.
+   */
+  public async settleVideoDecodes(): Promise<void> {
+    await Promise.resolve();
   }
 
   /** Allows SceneExtensions to add options to the context menu. */

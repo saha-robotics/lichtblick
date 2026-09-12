@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -7,17 +7,23 @@
 
 import { exec } from "@actions/exec";
 import { downloadTool, extractZip } from "@actions/tool-cache";
-import type MacPackager from "app-builder-lib/out/macPackager";
 import { log, Arch } from "builder-util";
 import crypto from "crypto";
-import { AfterPackContext } from "electron-builder";
+import { AfterPackContext, MacPackager } from "electron-builder";
 import fs from "fs/promises";
 import path from "path";
 import plist, { PlistObject } from "plist";
 
 async function getKeychainFile(context: AfterPackContext): Promise<string | undefined> {
-  const macPackager = context.packager as unknown as MacPackager;
-  if ((macPackager as Partial<typeof macPackager>).codeSigningInfo == undefined) {
+  // Ensure it's a macOS packager
+  if (context.packager.platform.name !== "mac") {
+    log.error("Not a macOS packager.");
+    return;
+  }
+
+  // Access properties dynamically
+  const macPackager = context.packager as MacPackager;
+  if (!macPackager.codeSigningInfo.hasValue) {
     log.error("No code signing info available.");
     return;
   }
@@ -70,7 +76,7 @@ async function copySpotlightImporter(context: AfterPackContext) {
   await downloadTool(zipURL, zipPath);
   const actualSHA = crypto
     .createHash("sha256")
-    .update(await fs.readFile(zipPath))
+    .update(new Uint8Array(await fs.readFile(zipPath)))
     .digest("hex");
   if (actualSHA !== zipSHA) {
     throw new Error(`SHA mismatch for ${zipURL}: expected ${zipSHA}, got ${actualSHA}`);

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -17,7 +17,7 @@ import ThemeProvider from "@lichtblick/suite-base/theme/ThemeProvider";
 import { SaveConfig } from "@lichtblick/suite-base/types/panels";
 
 import { Indicator } from "./Indicator";
-import { Config } from "./types";
+import { IndicatorConfig } from "./types";
 
 function initPanel(crash: ReturnType<typeof useCrash>, context: PanelExtensionContext) {
   return createSyncRoot(
@@ -30,26 +30,27 @@ function initPanel(crash: ReturnType<typeof useCrash>, context: PanelExtensionCo
   );
 }
 
-type Props = {
-  config: Config;
-  saveConfig: SaveConfig<Config>;
+type IndicatorPanelAdapterProps = {
+  config: IndicatorConfig;
+  saveConfig: SaveConfig<IndicatorConfig>;
 };
 
-function IndicatorLightPanelAdapter(props: Props) {
+function IndicatorLightPanelAdapter({ config, saveConfig }: IndicatorPanelAdapterProps) {
   const crash = useCrash();
   const boundInitPanel = useMemo(() => initPanel.bind(undefined, crash), [crash]);
-
   return (
     <PanelExtensionAdapter
-      config={props.config}
-      saveConfig={props.saveConfig}
+      config={config}
+      saveConfig={saveConfig}
       initPanel={boundInitPanel}
       highestSupportedConfigVersion={1}
     />
   );
 }
 
-IndicatorLightPanelAdapter.panelType = "Indicator";
-IndicatorLightPanelAdapter.defaultConfig = {};
-
-export default Panel(IndicatorLightPanelAdapter);
+export default Panel(
+  Object.assign(IndicatorLightPanelAdapter, {
+    panelType: "Indicator",
+    defaultConfig: {},
+  }),
+);

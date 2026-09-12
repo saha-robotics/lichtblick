@@ -1,13 +1,27 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
+import type { MessageDefinition } from "@lichtblick/message-definition";
+
+import type { RegisterCameraModelArgs } from "./cameraModels";
 import type { Immutable } from "./immutable";
 
 export type { Immutable } from "./immutable";
+// Expose all interfaces from about camera models
+export type {
+  FloatArray,
+  DistortionModel,
+  CameraInfo,
+  Vector2,
+  Vector3,
+  ICameraModel,
+  CameraModelBuilder,
+  RegisterCameraModelArgs,
+} from "./cameraModels";
 
 // Valid types for parameter data (such as rosparams)
 export type ParameterValue =
@@ -48,10 +62,6 @@ export type Topic = {
    */
   name: string;
   /**
-   * @deprecated Renamed to `schemaName`. `datatype` will be removed in a future release.
-   */
-  datatype: string;
-  /**
    * The schema name is an identifier for the types of messages on this topic. Typically this is the
    * fully-qualified name of the message schema. The fully-qualified name depends on the data source
    * and data loaded by the data source.
@@ -86,6 +96,17 @@ export type Subscription = {
    * **Only** topics with `preload: true` are available in the `allFrames` render state.
    */
   preload?: boolean;
+
+  /**
+   * Optional sampling policy for message delivery.
+   * If not specified, all messages are delivered.
+   *
+   * `latest-per-render-tick` delivers at most the latest message per topic per render tick.
+   * This can reduce decoding work for high-rate topics when only the latest value is needed.
+   */
+  sampling?: {
+    mode: "latest-per-render-tick";
+  };
 };
 
 /**
@@ -228,6 +249,11 @@ export type RenderState = {
   topics?: Topic[];
 
   /**
+   * List of available services. This list includes all services provided by the data source.
+   */
+  services?: string[];
+
+  /**
    * A timestamp value indicating the current playback time.
    */
   currentTime?: Time;
@@ -261,6 +287,52 @@ export type RenderState = {
 
   /** Application settings. This will only contain subscribed application setting key/values */
   appSettings?: Map<string, AppSettingValue>;
+};
+
+export type SubscribeMessageRangeArgs = {
+  /**
+   * Topic to be subscribed to.
+   */
+  topic: string;
+
+  /**
+   * Convert messages to this schema before delivering to the subscriber.
+   *
+   * MessageEvents for the subscription will contain the converted message and an
+   * `originalMessageEvent` field with the original message event. If no `convertTo` schema is
+   * specified, then no message converters will be used. If no message converter exists for
+   * converting the original schema to the `convertTo` schema, then no messages are delivered for
+   * this subscription.
+   */
+  convertTo?: string;
+
+  /**
+   * The `onNewRangeIterator` callback function is invoked whenever message data becomes available for
+   * the subscribed topic.
+   *
+   * Your function should process messages by iterating through the supplied async iterable. Each element
+   * in the iterable represents a batch containing message events for the subscription's topic. Both the batches and
+   * individual messages are ordered by _log time_. The iterator completes when no additional messages remain
+   * to be read.
+   *
+   * ```typescript
+   * async function onNewRangeIterator(batchIterator) {
+   *   for await (const batch of batchIterator) {
+   *     //...
+   *   }
+   * }
+   * ```
+   *
+   * The `onNewRangeIterator` callback is triggered again whenever upstream topic data undergoes changes. For instance, this occurs when
+   * subscribing to a user-script output topic and the script is modified, or when subscribing to an aliased topic where
+   * the alias configuration changes. Following topic data changes, the existing iterator terminates, rendering its data
+   * obsolete. Upon receiving a new `onNewRangeIterator` call, you should discard any previously received data.
+   *
+   * Should your `onNewRangeIterator` function encounter an error, the iterator will terminate and no additional
+   * messages will be delivered until `onNewRangeIterator` is invoked again. Any errors will be displayed in the problems sidebar
+   * to ensure user visibility.
+   */
+  onNewRangeIterator: (batchIterator: AsyncIterable<Immutable<MessageEvent[]>>) => Promise<void>;
 };
 
 export type PanelExtensionContext = {
@@ -360,6 +432,10 @@ export type PanelExtensionContext = {
    * an empty array will unsubscribe from all topics.
    *
    * Calling subscribe with an empty array is analagous to unsubscribeAll.
+   *
+   * Note: sampling requests are treated as a best-effort hint. Sampling is only enabled when all
+   * consumers for a topic allow it (including any message converters), and is disabled when
+   * `preload: true` or when converters do not explicitly support latest-per-render-tick sampling.
    */
   subscribe(subscriptions: Subscription[]): void;
 
@@ -425,6 +501,58 @@ export type PanelExtensionContext = {
    * manually. A value of `undefined` will display the panel's name in the title bar.
    */
   setDefaultPanelTitle(defaultTitle: string | undefined): void;
+
+  /**
+   * Enables subscription to retrieve complete message history for a specified topic from the active data source.
+   *
+   * See {@link SubscribeMessageRangeArgs} for more information on behavior.
+   *
+   * Note: This functionality is unavailable for real-time data sources, including foxglove_bridge, rosbridge, or ROS 1
+   * native connections. For such sources, you must utilize `context.subscribe()` and
+   * `watch("currentFrame")`.
+   *
+   * @returns A cleanup function that terminates the topic subscription, cancels the running async iterator,
+   * and blocks future invocations of {@link SubscribeMessageRangeArgs.onNewRangeIterator | onNewRangeIterator}.
+   */
+  unstable_subscribeMessageRange: (args: SubscribeMessageRangeArgs) => () => void;
+
+  /**
+   * Reads the most recent message on `topic` at or before `time`, without moving the playback
+   * cursor and without affecting `currentFrame`, `didSeek`, or any other panel's subscriptions.
+   *
+   * Unlike `subscribe()` + `watch("currentFrame")` or `seekPlayback()`, this does not depend on
+   * shared playback state, so multiple calls — including concurrent calls issued via
+   * `Promise.all()` for different topics or timestamps — are fully independent of each other and
+   * of the current playback position.
+   *
+   * Note: This functionality is unavailable for real-time data sources, including foxglove_bridge,
+   * rosbridge, or ROS 1 native connections. For such sources this resolves to `undefined`.
+   *
+   * @returns The message at or before `time`, or `undefined` if none exists or the active data
+   * source does not support point-in-time queries.
+   */
+  getMessageAtTime?: (topic: string, time: Time) => Promise<MessageEvent | undefined>;
+
+  /**
+   * Returns the schema definition for a given topic, without requiring a subscription or reading
+   * any message data. Useful for inspecting message field structure (e.g. building field path
+   * selectors) at panel initialization time.
+   *
+   * @param topic The name of the topic whose schema should be returned.
+   * @returns The `MessageDefinition` for the topic's schema, or `undefined` if the topic is
+   *   unknown or no active data source is available.
+   */
+  getTopicSchema: (topic: string) => Immutable<MessageDefinition> | undefined;
+
+  /**
+   * Returns the schema definition for a given schemaName, without requiring a subscription or reading
+   * any message data.
+   *
+   * @param schemaName The name of the schema whose definition should be returned.
+   * @returns The `MessageDefinition` for the schema, or `undefined`
+   *   if the schema is unknown or no active data source is available.
+   */
+  getSchema: (schemaName: string) => Immutable<MessageDefinition> | undefined;
 };
 
 export type ExtensionPanelRegistration = {
@@ -458,10 +586,34 @@ export interface PanelSettings<ExtensionSettings> {
   defaultConfig?: ExtensionSettings;
 }
 
+export type MessageConverterAlert = {
+  severity: "error" | "warn" | "info";
+  message: string;
+  error?: Error;
+  tip?: string;
+};
+
+export type MessageConverterEmitAlert = (alert: MessageConverterAlert, alertId?: string) => void;
+
+export type MessageConverterContext = {
+  emitAlert: MessageConverterEmitAlert;
+};
+
 export type RegisterMessageConverterArgs<Src> = {
   fromSchemaName: string;
   toSchemaName: string;
-  converter: (msg: Src, event: Immutable<MessageEvent<Src>>) => unknown;
+  /**
+   * Indicates whether this converter is safe to run when messages are sampled to
+   * only the latest-per-render-tick. If false or unset, the converter is treated
+   * as needing all messages.
+   */
+  supportsLatestPerRenderTick?: boolean;
+  converter: (
+    msg: Src,
+    event: Immutable<MessageEvent<Src>>,
+    globalVariables?: Readonly<Record<string, VariableValue>>,
+    context?: MessageConverterContext,
+  ) => unknown;
   /**
    * Custom settings for the topics using the schema specified in the *toSchemaName* property
    */
@@ -507,6 +659,8 @@ export interface ExtensionContext {
    * topic aliases.
    */
   registerTopicAliases(aliasFunction: TopicAliasFunction): void;
+
+  registerCameraModel(args: RegisterCameraModelArgs): void;
 }
 
 export type ExtensionActivate = (extensionContext: ExtensionContext) => void;
@@ -531,6 +685,7 @@ export const SETTINGS_ICONS = [
   "Collapse",
   "Cube",
   "Delete",
+  "DragHandle",
   "Expand",
   "Flag",
   "Folder",
@@ -565,116 +720,165 @@ export type SettingsIcon = (typeof SETTINGS_ICONS)[number];
  * A settings tree field specifies the input type and the value of a field
  * in the settings editor.
  */
+export type SettingsTreeFieldAutocomplete = {
+  input: "autocomplete";
+  value?: string;
+  items: string[];
+
+  /**
+   * Optional placeholder text displayed in the field input when value is undefined
+   */
+  placeholder?: string;
+};
+
+export type SettingsTreeFieldBoolean = {
+  input: "boolean";
+  value?: boolean;
+};
+
+export type SettingsTreeFieldRGB = {
+  input: "rgb";
+  value?: string;
+
+  /**
+   * Optional placeholder text displayed in the field input when value is undefined
+   */
+  placeholder?: string;
+
+  /**
+   * Optional field that's true if the clear button should be hidden.
+   */
+  hideClearButton?: boolean;
+};
+
+export type SettingsTreeFieldRGBA = {
+  input: "rgba";
+  value?: string;
+
+  /**
+   * Optional placeholder text displayed in the field input when value is undefined
+   */
+  placeholder?: string;
+
+  /**
+   * Optional field that's true if the clear button should be hidden.
+   */
+  hideClearButton?: boolean;
+};
+
+export type SettingsTreeFieldGradient = {
+  input: "gradient";
+  value?: [string, string];
+};
+
+export type SettingsTreeFieldMessagePath = {
+  input: "messagepath";
+  value?: string;
+  validTypes?: string[];
+  /** True if the input should allow math modifiers like @abs. */
+  supportsMathModifiers?: boolean;
+};
+
+export type SettingsTreeFieldNumber = {
+  input: "number";
+  value?: number;
+  step?: number;
+  max?: number;
+  min?: number;
+  precision?: number;
+
+  /**
+   * Optional placeholder text displayed in the field input when value is undefined
+   */
+  placeholder?: string;
+};
+
+export type SettingsTreeFieldSelectNumber = {
+  input: "select";
+  value?: number | number[];
+  options: Array<{ label: string; value: undefined | number; disabled?: boolean }>;
+};
+
+export type SettingsTreeFieldSelectString = {
+  input: "select";
+  value?: string | string[];
+  options: Array<{ label: string; value: undefined | string; disabled?: boolean }>;
+};
+
+export type SettingsTreeFieldString = {
+  input: "string";
+  value?: string;
+
+  /**
+   * Optional placeholder text displayed in the field input when value is undefined
+   */
+  placeholder?: string;
+};
+
+export type SettingsTreeFieldToggleString = {
+  input: "toggle";
+  value?: string;
+  options: string[] | Array<{ label: string; value: undefined | string }>;
+};
+
+export type SettingsTreeFieldToggleNumber = {
+  input: "toggle";
+  value?: number;
+  options: number[] | Array<{ label: string; value: undefined | number }>;
+};
+
+export type SettingsTreeFieldSlider = {
+  input: "slider";
+  value?: number;
+  min?: number;
+  max?: number;
+  step?: number;
+};
+
+export type SettingsTreeFieldVec3 = {
+  input: "vec3";
+  value?: [undefined | number, undefined | number, undefined | number];
+  placeholder?: [undefined | string, undefined | string, undefined | string];
+  step?: number;
+  precision?: number;
+  labels?: [string, string, string];
+  max?: number;
+  min?: number;
+};
+
+export type SettingsTreeFieldVec2 = {
+  input: "vec2";
+  value?: [undefined | number, undefined | number];
+  placeholder?: [undefined | string, undefined | string];
+  step?: number;
+  precision?: number;
+  labels?: [string, string];
+  max?: number;
+  min?: number;
+};
+
+export type SettingsTreeFieldLegendControl = {
+  input: "legendcontrols";
+  value?: undefined;
+};
+
 export type SettingsTreeFieldValue =
-  | {
-      input: "autocomplete";
-      value?: string;
-      items: string[];
-
-      /**
-       * Optional placeholder text displayed in the field input when value is undefined
-       */
-      placeholder?: string;
-    }
-  | { input: "boolean"; value?: boolean }
-  | {
-      input: "rgb";
-      value?: string;
-
-      /**
-       * Optional placeholder text displayed in the field input when value is undefined
-       */
-      placeholder?: string;
-
-      /**
-       * Optional field that's true if the clear button should be hidden.
-       */
-      hideClearButton?: boolean;
-    }
-  | {
-      input: "rgba";
-      value?: string;
-
-      /**
-       * Optional placeholder text displayed in the field input when value is undefined
-       */
-      placeholder?: string;
-
-      /**
-       * Optional field that's true if the clear button should be hidden.
-       */
-      hideClearButton?: boolean;
-    }
-  | { input: "gradient"; value?: [string, string] }
-  | {
-      input: "messagepath";
-      value?: string;
-      validTypes?: string[];
-      /** True if the input should allow math modifiers like @abs. */
-      supportsMathModifiers?: boolean;
-    }
-  | {
-      input: "number";
-      value?: number;
-      step?: number;
-      max?: number;
-      min?: number;
-      precision?: number;
-
-      /**
-       * Optional placeholder text displayed in the field input when value is undefined
-       */
-      placeholder?: string;
-    }
-  | {
-      input: "select";
-      value?: number | number[];
-      options: Array<{ label: string; value: undefined | number; disabled?: boolean }>;
-    }
-  | {
-      input: "select";
-      value?: string | string[];
-      options: Array<{ label: string; value: undefined | string; disabled?: boolean }>;
-    }
-  | {
-      input: "string";
-      value?: string;
-
-      /**
-       * Optional placeholder text displayed in the field input when value is undefined
-       */
-      placeholder?: string;
-    }
-  | {
-      input: "toggle";
-      value?: string;
-      options: string[] | Array<{ label: string; value: undefined | string }>;
-    }
-  | {
-      input: "toggle";
-      value?: number;
-      options: number[] | Array<{ label: string; value: undefined | number }>;
-    }
-  | {
-      input: "vec3";
-      value?: [undefined | number, undefined | number, undefined | number];
-      placeholder?: [undefined | string, undefined | string, undefined | string];
-      step?: number;
-      precision?: number;
-      labels?: [string, string, string];
-      max?: number;
-      min?: number;
-    }
-  | {
-      input: "vec2";
-      value?: [undefined | number, undefined | number];
-      placeholder?: [undefined | string, undefined | string];
-      step?: number;
-      precision?: number;
-      labels?: [string, string];
-      max?: number;
-      min?: number;
-    };
+  | SettingsTreeFieldAutocomplete
+  | SettingsTreeFieldBoolean
+  | SettingsTreeFieldRGB
+  | SettingsTreeFieldRGBA
+  | SettingsTreeFieldGradient
+  | SettingsTreeFieldMessagePath
+  | SettingsTreeFieldNumber
+  | SettingsTreeFieldSelectNumber
+  | SettingsTreeFieldSelectString
+  | SettingsTreeFieldString
+  | SettingsTreeFieldToggleString
+  | SettingsTreeFieldToggleNumber
+  | SettingsTreeFieldSlider
+  | SettingsTreeFieldVec3
+  | SettingsTreeFieldVec2
+  | SettingsTreeFieldLegendControl;
 
 export type SettingsTreeField = SettingsTreeFieldValue & {
   /**
@@ -701,6 +905,11 @@ export type SettingsTreeField = SettingsTreeFieldValue & {
    * Optional message indicating any error state for the field.
    */
   error?: string;
+
+  /**
+   * Optional tooltip text displayed when hovering over the field.
+   */
+  tooltip?: string;
 };
 
 export type SettingsTreeFields = Record<string, undefined | SettingsTreeField>;
@@ -803,6 +1012,11 @@ export type SettingsTreeNode = {
    * Filter Children by visibility status
    */
   enableVisibilityFilter?: boolean;
+
+  /**
+   * True if the node can be reordered via drag and drop.
+   */
+  reorderable?: boolean;
 };
 
 /**
@@ -811,22 +1025,36 @@ export type SettingsTreeNode = {
  */
 type DistributivePick<T, K extends keyof T> = T extends unknown ? Pick<T, K> : never;
 
+export type SettingsTreeActionUpdatePayload = { path: readonly string[] } & DistributivePick<
+  SettingsTreeFieldValue,
+  "input" | "value"
+>;
+export type SettingsTreeActionUpdate = {
+  action: "update";
+  payload: SettingsTreeActionUpdatePayload;
+};
+
+export type SettingsTreeActionPerformNode = {
+  action: "perform-node-action";
+  payload: { id: string; path: readonly string[] };
+};
+
+export type SettingsTreeActionReorder = {
+  action: "reorder-node";
+  payload: {
+    path: readonly string[];
+    targetPath: readonly string[];
+  };
+};
+
 /**
  * Represents actions that can be dispatched to source of the SettingsTree to implement
  * edits and updates.
  */
 export type SettingsTreeAction =
-  | {
-      action: "update";
-      payload: { path: readonly string[] } & DistributivePick<
-        SettingsTreeFieldValue,
-        "input" | "value"
-      >;
-    }
-  | {
-      action: "perform-node-action";
-      payload: { id: string; path: readonly string[] };
-    };
+  | SettingsTreeActionUpdate
+  | SettingsTreeActionPerformNode
+  | SettingsTreeActionReorder;
 
 export type SettingsTreeNodes = Record<string, undefined | SettingsTreeNode>;
 

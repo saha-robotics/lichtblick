@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -58,6 +58,7 @@ import {
 import UserScriptPlayer from "@lichtblick/suite-base/players/UserScriptPlayer";
 import { Player } from "@lichtblick/suite-base/players/types";
 import { UserScripts } from "@lichtblick/suite-base/types/panels";
+import { mergeMultipleFileNames } from "@lichtblick/suite-base/util/mergeMultipleFileName";
 
 const log = Logger.getLogger(__filename);
 
@@ -72,6 +73,7 @@ const userScriptsSelector = (state: LayoutState) =>
   state.selectedLayout?.data?.userNodes ?? EMPTY_USER_NODES;
 const globalVariablesSelector = (state: LayoutState) =>
   state.selectedLayout?.data?.globalVariables ?? EMPTY_GLOBAL_VARIABLES;
+const isLayoutLoadingSelector = (state: LayoutState) => state.selectedLayout?.loading ?? false;
 
 const selectUserScriptActions = (store: UserScriptStore) => store.actions;
 
@@ -97,6 +99,7 @@ export default function PlayerManager(
 
   const userScripts = useCurrentLayoutSelector(userScriptsSelector);
   const globalVariables = useCurrentLayoutSelector(globalVariablesSelector);
+  const isLayoutLoading = useCurrentLayoutSelector(isLayoutLoadingSelector);
 
   const topicAliasPlayer = useMemo(() => {
     if (!basePlayer) {
@@ -143,7 +146,18 @@ export default function PlayerManager(
     return userScriptPlayer;
   }, [globalVariablesRef, topicAliasPlayer, userScriptActions, perfRegistry]);
 
-  useLayoutEffect(() => void player?.setUserScripts(userScripts), [player, userScripts]);
+  // During layout switches, selectedLayout.data is briefly undefined (loading: true)
+  useLayoutEffect(() => {
+    // which causes userScripts to become {}. Don't forward that transient empty state
+    // to the player — it would tear down registrations and kill active batch iterators.
+    if (isLayoutLoading) {
+      return;
+    }
+
+    player?.setUserScripts(userScripts).catch((error: unknown) => {
+      log.error(error);
+    });
+  }, [player, userScripts, isLayoutLoading]);
 
   const { enqueueSnackbar } = useSnackbar();
 
@@ -154,7 +168,7 @@ export default function PlayerManager(
       log.debug(`Select Source: ${sourceId}`);
 
       const foundSource = playerSources.find(
-        (source) => source.id === sourceId || source.legacyIds?.includes(sourceId),
+        (source) => (source.id === sourceId || source.legacyIds?.includes(sourceId)) ?? false,
       );
       if (!foundSource) {
         enqueueSnackbar(`Unknown data source: ${sourceId}`, { variant: "warning" });
@@ -187,6 +201,7 @@ export default function PlayerManager(
             const newPlayer = foundSource.initialize({
               metricsCollector,
               params: args.params,
+              sourceMetadata: args.sourceMetadata,
             });
             setBasePlayer(newPlayer);
 
@@ -203,7 +218,7 @@ export default function PlayerManager(
             return;
           }
           case "file": {
-            const handle = args.handle;
+            const handles = args.handles;
             const files = args.files;
 
             // files we can try loading immediately
@@ -227,35 +242,36 @@ export default function PlayerManager(
 
               setBasePlayer(newPlayer);
               return;
-            } else if (handle) {
-              const permission = await handle.queryPermission({ mode: "read" });
-              if (!isMounted()) {
-                return;
-              }
+            } else if (handles) {
+              for (const handle of handles) {
+                const permission = await handle.queryPermission({ mode: "read" });
+                if (!isMounted()) {
+                  return;
+                }
 
-              if (permission !== "granted") {
-                const newPerm = await handle.requestPermission({ mode: "read" });
-                if (newPerm !== "granted") {
-                  throw new Error(`Permission denied: ${handle.name}`);
+                if (permission !== "granted") {
+                  const newPerm = await handle.requestPermission({ mode: "read" });
+                  if (newPerm !== "granted") {
+                    throw new Error(`Permission denied: ${handle.name}`);
+                  }
                 }
               }
-
-              const file = await handle.getFile();
+              const filesHandled = await Promise.all(handles.map(async (f) => await f.getFile()));
               if (!isMounted()) {
                 return;
               }
 
               const newPlayer = foundSource.initialize({
-                file,
+                files: filesHandled,
                 metricsCollector,
               });
 
               setBasePlayer(newPlayer);
               addRecent({
                 type: "file",
-                title: handle.name,
+                title: mergeMultipleFileNames(handles.map((h) => h.name)),
                 sourceId: foundSource.id,
-                handle,
+                handles,
               });
 
               return;
@@ -336,7 +352,7 @@ function createSelectRecentCallback(
       case "file": {
         void selectSource(foundRecent.sourceId, {
           type: "file",
-          handle: foundRecent.handle,
+          handles: foundRecent.handles,
         });
       }
     }

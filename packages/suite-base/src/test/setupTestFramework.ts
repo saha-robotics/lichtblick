@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -23,7 +23,9 @@ import {
 
 // Mock out sendNotification for all tests
 jest.mock("@lichtblick/suite-base/util/sendNotification", () => {
+  const actual = jest.requireActual("@lichtblick/suite-base/util/sendNotification");
   return {
+    ...actual,
     __esModule: true,
     default: mockSendNotification,
     setNotificationHandler: mockSetNotificationHandler,

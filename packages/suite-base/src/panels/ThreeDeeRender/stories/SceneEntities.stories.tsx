@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -6,11 +6,11 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import { FrameTransform, LineType, SceneEntity, SceneUpdate } from "@foxglove/schemas";
-import { StoryObj } from "@storybook/react";
+import { StoryObj } from "@storybook/react-webpack5";
 import { useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
-import { STLExporter } from "three/examples/jsm/exporters/STLExporter";
-import { TeapotGeometry } from "three/examples/jsm/geometries/TeapotGeometry";
+import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
+import { TeapotGeometry } from "three/examples/jsm/geometries/TeapotGeometry.js";
 import tinycolor from "tinycolor2";
 
 import { MessageEvent } from "@lichtblick/suite";

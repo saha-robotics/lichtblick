@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -7,6 +7,11 @@
 
 // Tells TypeScript how to treat file types that we import specially with WebPack loaders
 // (see webpack.renderer.ts for details)
+
+declare module "*.css" {
+  const content: { [className: string]: string };
+  export default content;
+}
 
 declare module "*.svg" {
   import type { FunctionComponent, SVGProps } from "react";

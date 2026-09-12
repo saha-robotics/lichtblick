@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -8,6 +8,7 @@
 import EventEmitter from "eventemitter3";
 import * as THREE from "three";
 
+import { CameraModelsMap } from "@lichtblick/den/image/types";
 import {
   Immutable,
   MessageEvent,
@@ -22,12 +23,14 @@ import {
   DraggedMessagePath,
   MessagePathDropStatus,
 } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
-import { HUDItemManager } from "@lichtblick/suite-base/panels/ThreeDeeRender/HUDItemManager";
+import {
+  HUDItemManager,
+  HUDItem,
+} from "@lichtblick/suite-base/panels/ThreeDeeRender/HUDItemManager";
 import { ICameraHandler } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ICameraHandler";
 import IAnalytics from "@lichtblick/suite-base/services/IAnalytics";
 import { LabelPool } from "@lichtblick/three-text";
 
-import { HUDItem } from "./HUDItemManager";
 import { Input } from "./Input";
 import { MeshUpAxis, ModelCache } from "./ModelCache";
 import { PickedRenderable } from "./Picker";
@@ -43,7 +46,7 @@ import { ColorModeSettings } from "./renderables/colorMode";
 import { MarkerPool } from "./renderables/markers/MarkerPool";
 import { Quaternion, Vector3 } from "./ros";
 import { BaseSettings, CustomLayerSettings, SelectEntry } from "./settings";
-import { TransformTree } from "./transforms";
+import { AddTransformResult, TransformTree } from "./transforms";
 import { InterfaceMode } from "./types";
 
 export type RendererEvents = {
@@ -56,6 +59,12 @@ export type RendererEvents = {
     renderer: IRenderer,
   ) => void;
   selectedRenderable: (selection: PickedRenderable | undefined, renderer: IRenderer) => void;
+  renderableHovered: (
+    selections: PickedRenderable[],
+    cursorCoords: { x: number; y: number },
+    renderer: IRenderer,
+  ) => void;
+  hoverMoved: (cursorCoords: { x: number; y: number }, renderer: IRenderer) => void;
   parametersChange: (
     parameters: ReadonlyMap<string, ParameterValue> | undefined,
     renderer: IRenderer,
@@ -70,6 +79,7 @@ export type RendererEvents = {
   resetViewChanged: (renderer: IRenderer) => void;
   resetAllFramesCursor: (renderer: IRenderer) => void;
   hudItemsChanged: (renderer: IRenderer) => void;
+  clearPreloadBuffer: (renderer: IRenderer) => void;
 };
 
 export type FollowMode = "follow-pose" | "follow-position" | "follow-none";
@@ -96,6 +106,8 @@ export type ImageModeConfig = Partial<ColorModeSettings> & {
   synchronize?: boolean;
   /** Rotation */
   rotation?: 0 | 90 | 180 | 270;
+  brightness?: number;
+  contrast?: number;
   flipHorizontal?: boolean;
   flipVertical?: boolean;
   /** Minimum (black) value for single-channel images */
@@ -121,6 +133,15 @@ export type RendererConfig = {
     /** Ignore the <up_axis> tag in COLLADA files (matching rviz behavior) */
     ignoreColladaUpAxis?: boolean;
     meshUpAxis?: MeshUpAxis;
+    /**
+     * Fixed world-space directional light vs camera-attached headlight (RViz-style).
+     * Defaults to "fixed".
+     */
+    mainLightMode?: "fixed" | "headlight";
+    /** Intensity of the main directional scene light (default: Math.PI) */
+    directionalLightIntensity?: number;
+    /** Intensity of the ambient hemisphere light (default: 0.5 * Math.PI) */
+    hemisphereLightIntensity?: number;
     transforms?: {
       /** Toggles translation and rotation offset controls for frames */
       editable?: boolean;
@@ -136,6 +157,8 @@ export type RendererConfig = {
       lineColor?: string;
       /** Enable transform preloading */
       enablePreloading?: boolean;
+      /** Maximum number of transform messages to keep when preloading (default: 10000) */
+      maxPreloadMessages?: number;
     };
     /** Sync camera with other 3d panels */
     syncCamera?: boolean;
@@ -213,10 +236,15 @@ export class InstancedLineMaterial extends THREE.LineBasicMaterial {
   }
 }
 
+export type AddMessageEventOptions = {
+  inBatch: boolean;
+};
+
 export interface IRenderer extends EventEmitter<RendererEvents> {
   readonly interfaceMode: InterfaceMode;
   readonly gl: THREE.WebGLRenderer;
   readonly testOptions: TestOptions;
+  customCameraModels: CameraModelsMap;
   maxLod: DetailLevel;
   config: Immutable<RendererConfig>;
   settings: SettingsManager;
@@ -289,7 +317,7 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
    * Should be called after `setCurrentTime` as been called
    * @param oldTime used to determine if seeked backwards
    */
-  handleSeek(oldTimeNs: bigint): void;
+  handleSeek(oldTimeNs: bigint, allFrames?: readonly MessageEvent[]): void;
 
   /**
    * Clears:
@@ -326,6 +354,9 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
   /** Update the color scheme and background color, rebuilding any materials as necessary */
   setColorScheme(colorScheme: "dark" | "light", backgroundColor: string | undefined): void;
 
+  /** Re-apply renderer scene settings such as lighting and tone mapping from the current config */
+  updateSceneRenderSettings(): void;
+
   /** Update the list of topics and rebuild all settings nodes when the identity
    * of the topics list changes */
   setTopics(topics: ReadonlyArray<Topic> | undefined): void;
@@ -336,6 +367,8 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
 
   setCameraState(cameraState: CameraState): void;
 
+  setCustomCameraModels(newCameraModels: CameraModelsMap): void;
+
   getCameraState(): CameraState | undefined;
 
   /** Whether the view has been modified and a reset button should be shown (image mode only). */
@@ -345,7 +378,10 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
 
   setSelectedRenderable(selection: PickedRenderable | undefined): void;
 
-  addMessageEvent(messageEvent: Readonly<MessageEvent>): void;
+  addMessageEvent(
+    messageEvent: Readonly<MessageEvent>,
+    options?: Partial<AddMessageEventOptions>,
+  ): void;
 
   /**  Set desired render/display frame, will render using fallback if id is undefined or frame does not exist */
   setFollowFrameId(frameId: string | undefined): void;
@@ -368,13 +404,20 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
     translation: Vector3,
     rotation: Quaternion,
     errorSettingsPath?: string[],
-  ): void;
+  ): AddTransformResult;
 
   removeTransform(childFrameId: string, parentFrameId: string, stamp: bigint): void;
 
   // Callback handlers
   animationFrame: () => void;
   queueAnimationFrame: () => void;
+
+  /**
+   * Resolves once all scene extensions have finished any in-flight asynchronous video decoding.
+   * Used by the panel to gate the frame barrier on a seek so the cursor parks on the target until
+   * the seek frame is actually rendered.
+   */
+  settleVideoDecodes(): Promise<void>;
 
   // Function to fetch an asset from Studio's asset manager.
   fetchAsset: BuiltinPanelExtensionContext["unstable_fetchAsset"];

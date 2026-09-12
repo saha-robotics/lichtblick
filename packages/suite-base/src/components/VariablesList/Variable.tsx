@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -137,7 +137,7 @@ export default function Variable(props: {
 
   const deleteVariable = useCallback(() => {
     setGlobalVariables({ [name]: undefined });
-    void analytics.logEvent(AppEvent.VARIABLE_DELETE);
+    analytics.logEvent(AppEvent.VARIABLE_DELETE);
     handleClose();
   }, [analytics, name, setGlobalVariables]);
 
@@ -195,9 +195,11 @@ export default function Variable(props: {
               anchorEl={anchorEl}
               open={menuOpen}
               onClose={handleClose}
-              MenuListProps={{
-                "aria-labelledby": "variable-action-button",
-                dense: true,
+              slotProps={{
+                list: {
+                  "aria-labelledby": "variable-action-button",
+                  dense: true,
+                },
               }}
             >
               <MenuItem onClick={deleteVariable}>
@@ -255,10 +257,12 @@ export default function Variable(props: {
                 />
               </Stack>
             }
-            primaryTypographyProps={{
-              component: "div",
-              fontWeight: 600,
-              variant: "body2",
+            slotProps={{
+              primary: {
+                component: "div",
+                fontWeight: 600,
+                variant: "body2",
+              },
             }}
           />
         </ListItemButton>
@@ -274,7 +278,11 @@ export default function Variable(props: {
           >
             {copied ? "Copied" : "Copy"}
           </CopyButton>
-          <JsonInput value={value} onChange={onChangeValue} />
+          <JsonInput
+            dataTestId="global-variable-value-input"
+            value={value}
+            onChange={onChangeValue}
+          />
         </div>
       )}
       <Divider />

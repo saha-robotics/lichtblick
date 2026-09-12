@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -10,11 +10,13 @@ import { useMemo, useState } from "react";
 import {
   AppBarProps,
   AppSetting,
+  IExtensionLoader,
   FoxgloveWebSocketDataSourceFactory,
   IDataSourceFactory,
   IdbExtensionLoader,
   McapLocalDataSourceFactory,
   RemoteDataSourceFactory,
+  RemoteExtensionLoader,
   Ros1LocalBagDataSourceFactory,
   Ros2LocalBagDataSourceFactory,
   RosbridgeDataSourceFactory,
@@ -22,6 +24,8 @@ import {
   SharedRoot,
   UlogLocalDataSourceFactory,
 } from "@lichtblick/suite-base";
+import { APP_CONFIG } from "@lichtblick/suite-base/constants/config";
+import { AppParametersInput } from "@lichtblick/suite-base/context/AppParametersContext";
 
 import LocalStorageAppConfiguration from "./services/LocalStorageAppConfiguration";
 
@@ -43,10 +47,26 @@ export function WebRoot(props: {
     [],
   );
 
-  const [extensionLoaders] = useState(() => [
+  const defaultExtensionLoaders: IExtensionLoader[] = [
     new IdbExtensionLoader("org"),
     new IdbExtensionLoader("local"),
-  ]);
+  ];
+  const url = new URL(globalThis.location.href);
+  const workspace = url.searchParams.get("workspace");
+
+  if (workspace && APP_CONFIG.apiUrl) {
+    defaultExtensionLoaders.push(new RemoteExtensionLoader("org", workspace));
+  }
+  const [extensionLoaders] = useState(() => defaultExtensionLoaders);
+
+  const layout = url.searchParams.get("layout");
+  const [appParameters] = useState<AppParametersInput>(() => {
+    const params: Record<string, string> = {};
+    if (layout != undefined && layout !== "") {
+      params.defaultLayout = layout;
+    }
+    return params;
+  });
 
   const dataSources = useMemo(() => {
     const sources = [
@@ -66,9 +86,10 @@ export function WebRoot(props: {
   return (
     <SharedRoot
       enableLaunchPreferenceScreen
-      deepLinks={[window.location.href]}
+      deepLinks={[globalThis.location.href]}
       dataSources={dataSources}
       appConfiguration={appConfiguration}
+      appParameters={appParameters}
       extensionLoaders={extensionLoaders}
       enableGlobalCss
       extraProviders={props.extraProviders}

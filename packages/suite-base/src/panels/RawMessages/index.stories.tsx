@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -14,12 +14,9 @@
 //   found at http://www.apache.org/licenses/LICENSE-2.0
 //   You may not use this file except in compliance with the License.
 
-import { StoryObj } from "@storybook/react";
+import { StoryObj } from "@storybook/react-webpack5";
 
 import RawMessages from "@lichtblick/suite-base/panels/RawMessages";
-import PanelSetup from "@lichtblick/suite-base/stories/PanelSetup";
-
-import { PREV_MSG_METHOD } from "./constants";
 import {
   enumAdvancedFixture,
   enumFixture,
@@ -29,9 +26,13 @@ import {
   topicsToDiffFixture,
   topicsWithIdsToDiffFixture,
   withMissingData,
-} from "./fixture";
-import type { RawMessagesPanelConfig } from "./types";
-import { NodeState } from "./types";
+} from "@lichtblick/suite-base/panels/RawMessages/fixture";
+import { PREV_MSG_METHOD } from "@lichtblick/suite-base/panels/RawMessagesCommon/constants";
+import {
+  NodeState,
+  RawMessagesPanelConfig,
+} from "@lichtblick/suite-base/panels/RawMessagesCommon/types";
+import PanelSetup from "@lichtblick/suite-base/stories/PanelSetup";
 
 const noDiffConfig = {
   diffMethod: "custom",
@@ -272,15 +273,13 @@ export const DisplayDiffWithIDFields: StoryObj = {
   render: () => (
     <PanelSetup fixture={topicsWithIdsToDiffFixture}>
       <RawMessages
-        overrideConfig={
-          {
-            ...diffConfig,
-            topicPath: "/baz/enum_advanced_array.value",
-            diffTopicPath: "/another/baz/enum_advanced_array.value",
-            showFullMessageForDiff: false,
-            expansion: "all",
-          } as RawMessagesPanelConfig
-        }
+        overrideConfig={{
+          ...diffConfig,
+          topicPath: "/baz/enum_advanced_array.value",
+          diffTopicPath: "/another/baz/enum_advanced_array.value",
+          showFullMessageForDiff: false,
+          expansion: "all",
+        }}
       />
     </PanelSetup>
   ),
@@ -289,9 +288,7 @@ export const DisplayDiffWithIDFields: StoryObj = {
 export const EmptyDiffMessage: StoryObj = {
   render: () => (
     <PanelSetup fixture={{ topics: [], frame: {} }}>
-      <RawMessages
-        overrideConfig={{ ...diffConfig, showFullMessageForDiff: false } as RawMessagesPanelConfig}
-      />
+      <RawMessages overrideConfig={{ ...diffConfig, showFullMessageForDiff: false }} />
     </PanelSetup>
   ),
 };
@@ -390,12 +387,10 @@ export const MultipleMessagesWithTopLevelFilter: StoryObj = {
   render: () => (
     <PanelSetup fixture={multipleNumberMessagesFixture}>
       <RawMessages
-        overrideConfig={
-          {
-            ...noDiffConfig,
-            topicPath: "/multiple_number_messages{value==2}",
-          } as any
-        }
+        overrideConfig={{
+          ...noDiffConfig,
+          topicPath: "/multiple_number_messages{value==2}",
+        }}
       />
     </PanelSetup>
   ),

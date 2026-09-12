@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -13,19 +13,58 @@ export type Matrix3 = [number, number, number, number, number, number, number, n
 
 // prettier-ignore
 export type Matrix3x4 = [
-  number, number, number, number,
-  number, number, number, number,
-  number, number, number, number
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
 ];
 
 // prettier-ignore
 export type Matrix6 = [
-  number, number, number, number, number, number,
-  number, number, number, number, number, number,
-  number, number, number, number, number, number,
-  number, number, number, number, number, number,
-  number, number, number, number, number, number,
-  number, number, number, number, number, number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
 ];
 
 export enum MarkerType {
@@ -367,7 +406,7 @@ function addRosDataType(output: Set<string>, dataType: string): Set<string> {
   }
 
   // Add the protobuf variation: ros.tf2_msgs.TFMessage
-  output.add("ros." + dataType.split("/").join("."));
+  output.add("ros." + dataType.replaceAll("/", "."));
 
   return output;
 }

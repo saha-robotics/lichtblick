@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -25,7 +25,6 @@ import { toNanoSec } from "@lichtblick/rostime";
 import { SettingsTreeAction } from "@lichtblick/suite";
 
 import { TopicEntities } from "./TopicEntities";
-import { PrimitivePool } from "./primitives/PrimitivePool";
 import type { AnyRendererSubscription, IRenderer } from "../IRenderer";
 import { SELECTED_ID_VARIABLE } from "../Renderable";
 import { PartialMessage, PartialMessageEvent, SceneExtension } from "../SceneExtension";
@@ -42,6 +41,7 @@ import {
 import { LayerSettingsEntity } from "../settings";
 import { topicIsConvertibleToSchema } from "../topicIsConvertibleToSchema";
 import { makePose } from "../transforms";
+import { PrimitivePool } from "./primitives/PrimitivePool";
 
 const SCENE_ENTITIES_DEFAULT_SETTINGS: LayerSettingsEntity = {
   showOutlines: true,
@@ -137,9 +137,7 @@ export class FoxgloveSceneEntities extends SceneExtension<TopicEntities> {
     const topicName = path[1]!;
     const renderable = this.renderables.get(topicName);
     if (renderable) {
-      const settings = this.renderer.config.topics[topicName] as
-        | Partial<LayerSettingsEntity>
-        | undefined;
+      const settings = this.renderer.config.topics[topicName];
       renderable.userData.settings = { ...SCENE_ENTITIES_DEFAULT_SETTINGS, ...settings };
       renderable.updateSettings();
     }
@@ -170,9 +168,7 @@ export class FoxgloveSceneEntities extends SceneExtension<TopicEntities> {
   #getTopicEntities(topic: string): TopicEntities {
     let topicEntities = this.renderables.get(topic);
     if (!topicEntities) {
-      const userSettings = this.renderer.config.topics[topic] as
-        | Partial<LayerSettingsEntity>
-        | undefined;
+      const userSettings = this.renderer.config.topics[topic];
 
       topicEntities = new TopicEntities(topic, this.#primitivePool, this.renderer, {
         receiveTime: -1n,
@@ -296,7 +292,7 @@ function normalizeTextPrimitive(text: PartialMessage<TextPrimitive> | undefined)
   return {
     pose: normalizePose(text?.pose),
     billboard: text?.billboard ?? true,
-    font_size: text?.font_size ?? (text?.scale_invariant ?? false ? 16 : 0.25),
+    font_size: text?.font_size ?? ((text?.scale_invariant ?? false) ? 16 : 0.25),
     scale_invariant: text?.scale_invariant ?? false,
     color: normalizeColorRGBA(text?.color),
     text: text?.text ?? "",

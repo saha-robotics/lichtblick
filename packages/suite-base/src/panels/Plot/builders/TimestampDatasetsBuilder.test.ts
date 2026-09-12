@@ -1,16 +1,13 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import * as _ from "lodash-es";
-
 import { unwrap } from "@lichtblick/den/monads";
 import { makeComlinkWorkerMock } from "@lichtblick/den/testing";
 import { parseMessagePath } from "@lichtblick/message-path";
-import { MessageEvent } from "@lichtblick/suite";
 import {
   MessageBlock,
   PlayerPresence,
@@ -21,16 +18,12 @@ import {
 import { SeriesConfigKey, SeriesItem } from "./IDatasetsBuilder";
 import { TimestampDatasetsBuilder } from "./TimestampDatasetsBuilder";
 import { TimestampDatasetsBuilderImpl } from "./TimestampDatasetsBuilderImpl";
-import { PlotPath } from "../config";
+import { PlotPath } from "../utils/config";
 
 Object.defineProperty(global, "Worker", {
   writable: true,
   value: makeComlinkWorkerMock(() => new TimestampDatasetsBuilderImpl()),
 });
-
-function groupByTopic(events: MessageEvent[]): Record<string, MessageEvent[]> {
-  return _.groupBy(events, (item) => item.topic);
-}
 
 function buildSeriesItems(
   paths: (Partial<PlotPath> & { key?: string; value: string })[],
@@ -164,6 +157,150 @@ describe("TimestampDatasetsBuilder", () => {
     });
   });
 
+  it("should render a gap by mapping a null value to NaN", async () => {
+    const builder = new TimestampDatasetsBuilder();
+
+    builder.setSeries(
+      buildSeriesItems([
+        {
+          enabled: true,
+          timestampMethod: "receiveTime",
+          value: "/foo.val",
+        },
+      ]),
+    );
+
+    builder.handlePlayerState(
+      buildPlayerState({
+        messages: [
+          {
+            topic: "/foo",
+            schemaName: "foo",
+            receiveTime: { sec: 0, nsec: 0 },
+            sizeInBytes: 0,
+            message: {
+              val: 0,
+            },
+          },
+          {
+            topic: "/foo",
+            schemaName: "foo",
+            receiveTime: { sec: 1, nsec: 0 },
+            sizeInBytes: 0,
+            message: {
+              val: null,
+            },
+          },
+          {
+            topic: "/foo",
+            schemaName: "foo",
+            receiveTime: { sec: 2, nsec: 0 },
+            sizeInBytes: 0,
+            message: {
+              val: 1,
+            },
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      builder.getViewportDatasets({
+        size: { width: 1_000, height: 1_000 },
+        bounds: {},
+      }),
+    ).resolves.toEqual({
+      pathsWithMismatchedDataLengths: new Set(),
+      datasetsByConfigIndex: [
+        expect.objectContaining({
+          data: [
+            { x: 0, y: 0, value: 0 },
+            { x: 1, y: NaN, value: null },
+            { x: 2, y: 1, value: 1 },
+          ],
+        }),
+      ],
+    });
+  });
+
+  it("resets the derivative segment after a gap instead of computing across it", async () => {
+    const builder = new TimestampDatasetsBuilder();
+
+    builder.setSeries(
+      buildSeriesItems([
+        {
+          enabled: true,
+          timestampMethod: "receiveTime",
+          value: "/foo.val.@derivative",
+        },
+      ]),
+    );
+
+    builder.handlePlayerState(
+      buildPlayerState({
+        messages: [
+          {
+            topic: "/foo",
+            schemaName: "foo",
+            receiveTime: { sec: 0, nsec: 0 },
+            sizeInBytes: 0,
+            message: { val: 0 },
+          },
+          {
+            topic: "/foo",
+            schemaName: "foo",
+            receiveTime: { sec: 1, nsec: 0 },
+            sizeInBytes: 0,
+            message: { val: 1 },
+          },
+          {
+            topic: "/foo",
+            schemaName: "foo",
+            receiveTime: { sec: 2, nsec: 0 },
+            sizeInBytes: 0,
+            message: { val: null },
+          },
+          {
+            topic: "/foo",
+            schemaName: "foo",
+            receiveTime: { sec: 3, nsec: 0 },
+            sizeInBytes: 0,
+            message: { val: 5 },
+          },
+          {
+            topic: "/foo",
+            schemaName: "foo",
+            receiveTime: { sec: 4, nsec: 0 },
+            sizeInBytes: 0,
+            message: { val: 7 },
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      builder.getViewportDatasets({
+        size: { width: 1_000, height: 1_000 },
+        bounds: {},
+      }),
+    ).resolves.toEqual({
+      pathsWithMismatchedDataLengths: new Set(),
+      datasetsByConfigIndex: [
+        expect.objectContaining({
+          // t=0 is dropped (no previous datum to diff against). t=1 is a normal derivative.
+          // t=2 is the gap itself, and t=3 is the first datum after it: both have nothing
+          // valid to diff against, so both come out as NaN/null. t=4 resumes normally.
+          data: [
+            { x: 1, y: 1, value: 1 },
+            { x: 2, y: NaN, value: null },
+            { x: 3, y: NaN, value: null },
+            { x: 4, y: 2, value: 2 },
+          ],
+        }),
+      ],
+    });
+  });
+
   it("should create a discontinuity between current and full", async () => {
     const builder = new TimestampDatasetsBuilder();
 
@@ -177,61 +314,49 @@ describe("TimestampDatasetsBuilder", () => {
       ]),
     );
 
-    const block = {
-      sizeInBytes: 0,
-      messagesByTopic: groupByTopic([
+    const playerState = buildPlayerState({
+      messages: [
+        {
+          topic: "/foo",
+          schemaName: "foo",
+          receiveTime: { sec: 1, nsec: 0 },
+          sizeInBytes: 0,
+          message: {
+            val: 1.5,
+          },
+        },
+        {
+          topic: "/foo",
+          schemaName: "foo",
+          receiveTime: { sec: 2, nsec: 0 },
+          sizeInBytes: 0,
+          message: {
+            val: 2.5,
+          },
+        },
+      ],
+    });
+
+    builder.handlePlayerState(playerState);
+    builder.handleMessageRange(
+      [
         {
           topic: "/foo",
           schemaName: "foo",
           receiveTime: { sec: 0, nsec: 0 },
           sizeInBytes: 0,
-          message: {
-            val: 0,
-          },
+          message: { val: 0 },
         },
         {
           topic: "/foo",
           schemaName: "foo",
           receiveTime: { sec: 0.5, nsec: 0 },
           sizeInBytes: 0,
-          message: {
-            val: 1,
-          },
+          message: { val: 1 },
         },
-      ]),
-    };
-
-    const playerState = buildPlayerState(
-      {
-        messages: [
-          {
-            topic: "/foo",
-            schemaName: "foo",
-            receiveTime: { sec: 1, nsec: 0 },
-            sizeInBytes: 0,
-            message: {
-              val: 1.5,
-            },
-          },
-          {
-            topic: "/foo",
-            schemaName: "foo",
-            receiveTime: { sec: 2, nsec: 0 },
-            sizeInBytes: 0,
-            message: {
-              val: 2.5,
-            },
-          },
-        ],
-      },
-      [block],
-    );
-
-    builder.handlePlayerState(playerState);
-    await builder.handleBlocks(
-      unwrap(playerState.activeData?.startTime),
-      unwrap(playerState.progress.messageCache?.blocks),
-      async () => await Promise.resolve(false),
+      ],
+      { isReset: false },
+      { sec: 0, nsec: 0 },
     );
 
     await expect(
@@ -250,6 +375,65 @@ describe("TimestampDatasetsBuilder", () => {
             { x: 1, y: 1.5, value: 1.5 },
             { x: 2, y: 2.5, value: 2.5 },
           ],
+        }),
+      ],
+    });
+  });
+
+  it("should reset full data when isReset is true", async () => {
+    const builder = new TimestampDatasetsBuilder();
+
+    builder.setSeries(
+      buildSeriesItems([{ enabled: true, timestampMethod: "receiveTime", value: "/foo.val" }]),
+    );
+
+    // Initial full data
+    builder.handleMessageRange(
+      [
+        {
+          topic: "/foo",
+          schemaName: "foo",
+          receiveTime: { sec: 0, nsec: 0 },
+          sizeInBytes: 0,
+          message: { val: 0 },
+        },
+        {
+          topic: "/foo",
+          schemaName: "foo",
+          receiveTime: { sec: 1, nsec: 0 },
+          sizeInBytes: 0,
+          message: { val: 1 },
+        },
+      ],
+      { isReset: false },
+      { sec: 0, nsec: 0 },
+    );
+
+    // Reset replaces all previous full data
+    builder.handleMessageRange(
+      [
+        {
+          topic: "/foo",
+          schemaName: "foo",
+          receiveTime: { sec: 2, nsec: 0 },
+          sizeInBytes: 0,
+          message: { val: 99 },
+        },
+      ],
+      { isReset: true },
+      { sec: 0, nsec: 0 },
+    );
+
+    await expect(
+      builder.getViewportDatasets({
+        size: { width: 1_000, height: 1_000 },
+        bounds: {},
+      }),
+    ).resolves.toEqual({
+      pathsWithMismatchedDataLengths: new Set(),
+      datasetsByConfigIndex: [
+        expect.objectContaining({
+          data: [{ x: 2, y: 99, value: 99 }],
         }),
       ],
     });

@@ -8,6 +8,8 @@
   <a href="https://github.com/lichtblick-suite/lichtblick/issues"><img src="https://img.shields.io/github/package-json/v/lichtblick-suite/lichtblick" alt="Versions Badge"/></a>
   <a href="https://github.com/lichtblick-suite/lichtblick/graphs/contributors"><img alt="GitHub contributors" src="https://img.shields.io/github/contributors/lichtblick-suite/lichtblick?color=2b9348"></a>
   <a href="https://opensource.org/licenses/MPL-2.0"><img src="https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg" alt="License: MPL 2.0"></a>
+  <a href="https://github.com/lichtblick-suite/lichtblick/actions/workflows/e2e-regression.yml?query=branch%3Adevelop"><img src="https://img.shields.io/github/actions/workflow/status/lichtblick-suite/lichtblick/e2e-regression.yml?branch=develop&label=E2E%20Regression%20(develop)" alt="E2E Regression (develop)"/></a>
+  <a href="https://github.com/lichtblick-suite/lichtblick/actions/workflows/e2e-regression.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/lichtblick-suite/lichtblick/e2e-regression.yml?branch=main&label=E2E%20Regression%20(main)" alt="E2E Regression (main)"/></a>
 
   <br />
 <p  align="center">
@@ -18,25 +20,42 @@ Lichtblick is an integrated visualization and diagnosis tool for robotics, avail
   </p>
 </div>
 
+## :rocket: Try Lichtblick
+
+**[Try Lichtblick now in your browser!](https://lichtblick-suite.github.io/lichtblick/)**
+
+No installation required - experience the full power of Lichtblick directly in your web browser!
+
+## :book: Documentation
+
+Looking for guidance on using Lichtblick? Check out our [official documentation here!](https://lichtblick-suite.github.io/docs/)
+
+We are actively updating our documentation with new features, stay tunned! :rocket:
+
 **Dependencies:**
 
 - [Node.js](https://nodejs.org/en/) v16.10+
-- [Git LFS](https://git-lfs.github.com/)
 
 <hr/>
 
 ## :rocket: Getting started
 
+### :whale: From Docker
+
+To run lichtblick via docker you can run:
+
+```sh
+docker run --rm -p 8080:8080 ghcr.io/lichtblick-suite/lichtblick:latest
+```
+
+And open in your browser: http://localhost:8080/
+
+### 📑 From source code
+
 Clone the repository:
 
 ```sh
 $ git clone https://github.com/lichtblick-suite/lichtblick.git
-```
-
-Pull large files with Git LFS:
-
-```sh
-$ git lfs pull
 ```
 
 Enable corepack:
@@ -65,6 +84,7 @@ $ yarn run web:serve        # it will be avaiable in http://localhost:8080
 ```
 
 :warning: Ubuntu users: the application may present some issues using GPU. In order to bypass the GPU and process it using directly the CPU (software), please run lichtblick using the variable `LIBGL_ALWAYS_SOFTWARE` set to `1`:
+
 ```sh
 $ LIBGL_ALWAYS_SOFTWARE=1 yarn desktop:start
 ```
@@ -93,6 +113,37 @@ $ yarn run clean
 ```
 
 - The desktop builds are located in the `dist` directory, and the web builds are found in the `web/.webpack` directory.
+
+## :warning: Note on Linux dependencies (.tar.gz only)
+
+When installing the **`.tar.gz` package**, unlike the `.deb`, **system dependencies are not installed automatically**.
+In many cases, if you already have **Google Chrome** or another Chromium-based application installed, Lichtblick will run fine since these applications bring most of the required libraries.
+
+However, if you see errors about missing libraries when launching Lichtblick, you will need to install them manually.
+The most common missing dependencies are:
+
+- `libgtk-3-0`
+- `libatk1.0-0`
+- `libatk-bridge2.0-0`
+- `libatspi2.0-0`
+- `libnss3`
+- `libnspr4`
+- `libasound2`
+- `libcups2`
+- `libnotify4`
+- `libxtst6`
+- `xdg-utils`
+- `libdrm2`
+- `libgbm1`
+- `libxcb-dri3-0`
+
+Example (Debian/Ubuntu):
+
+```bash
+sudo apt-get update && sudo apt-get install libgtk-3-0 libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 libnss3 libnspr4 libasound2 libcups2 libnotify4 libxtst6 xdg-utils libdrm2 libgbm1 libxcb-dri3-0
+```
+
+👉 **Recommendation**: if using the `.tar.gz`, always check the error messages in the terminal. They will indicate which library is missing so you can install it manually.
 
 ## :pencil: License (Open Source)
 

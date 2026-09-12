@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -16,26 +16,12 @@
 
 import Panel from "@lichtblick/suite-base/components/Panel";
 
-import { Plot, defaultSidebarDimension } from "./Plot";
-import { PlotConfig } from "./config";
-
-const defaultConfig: PlotConfig = {
-  paths: [],
-  minYValue: undefined,
-  maxYValue: undefined,
-  showXAxisLabels: true,
-  showYAxisLabels: true,
-  showLegend: true,
-  legendDisplay: "floating",
-  showPlotValuesInLegend: false,
-  isSynced: true,
-  xAxisVal: "timestamp",
-  sidebarDimension: defaultSidebarDimension,
-};
+import Plot from "./Plot";
+import { DEFAULT_PLOT_CONFIG } from "./constants";
 
 export default Panel(
   Object.assign(Plot, {
     panelType: "Plot",
-    defaultConfig,
+    defaultConfig: DEFAULT_PLOT_CONFIG,
   }),
 );

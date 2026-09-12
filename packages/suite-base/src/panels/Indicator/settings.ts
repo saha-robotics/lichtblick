@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -18,9 +18,9 @@ import {
   SettingsTreeNodes,
 } from "@lichtblick/suite";
 
-import { Config, Rule } from "./types";
+import { IndicatorConfig, IndicatorRule } from "./types";
 
-function ruleToString(rule: Rule): string {
+function ruleToString(rule: IndicatorRule): string {
   const operator = {
     "=": "=",
     "<": "<",
@@ -31,7 +31,10 @@ function ruleToString(rule: Rule): string {
   return `data ${operator} ${rule.rawValue}`;
 }
 
-export function settingsActionReducer(prevConfig: Config, action: SettingsTreeAction): Config {
+export function settingsActionReducer(
+  prevConfig: IndicatorConfig,
+  action: SettingsTreeAction,
+): IndicatorConfig {
   return produce(prevConfig, (draft) => {
     switch (action.action) {
       case "perform-node-action":
@@ -89,7 +92,7 @@ export function settingsActionReducer(prevConfig: Config, action: SettingsTreeAc
 }
 
 const memoizedCreateRuleNode = memoizeWeak(
-  (rule: Rule, i: number, rules: readonly Rule[]): SettingsTreeNode => {
+  (rule: IndicatorRule, i: number, rules: readonly IndicatorRule[]): SettingsTreeNode => {
     const actions: (SettingsTreeNodeAction | false)[] = [
       { type: "action", id: "delete-rule", label: "Delete rule", icon: "Delete" },
       i > 0 && { type: "action", id: "move-up", label: "Move up", icon: "MoveUp" },
@@ -139,7 +142,7 @@ const memoizedCreateRuleNode = memoizeWeak(
 );
 
 export function useSettingsTree(
-  config: Config,
+  config: IndicatorConfig,
   pathParseError: string | undefined,
   error: string | undefined,
 ): SettingsTreeNodes {

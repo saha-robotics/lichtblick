@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -11,11 +11,13 @@ import { HTML5Backend } from "react-dnd-html5-backend";
 
 import { IdbLayoutStorage } from "@lichtblick/suite-base/IdbLayoutStorage";
 import GlobalCss from "@lichtblick/suite-base/components/GlobalCss";
+import { AppParametersInput } from "@lichtblick/suite-base/context/AppParametersContext";
 import LayoutStorageContext from "@lichtblick/suite-base/context/LayoutStorageContext";
 import { UserScriptStateProvider } from "@lichtblick/suite-base/context/UserScriptStateContext";
+import AlertsContextProvider from "@lichtblick/suite-base/providers/AlertsContextProvider";
+import AppParametersProvider from "@lichtblick/suite-base/providers/AppParametersProvider";
 import EventsProvider from "@lichtblick/suite-base/providers/EventsProvider";
 import LayoutManagerProvider from "@lichtblick/suite-base/providers/LayoutManagerProvider";
-import ProblemsContextProvider from "@lichtblick/suite-base/providers/ProblemsContextProvider";
 import { StudioLogsSettingsProvider } from "@lichtblick/suite-base/providers/StudioLogsSettingsProvider";
 import TimelineInteractionStateProvider from "@lichtblick/suite-base/providers/TimelineInteractionStateProvider";
 import UserProfileLocalStorageProvider from "@lichtblick/suite-base/providers/UserProfileLocalStorageProvider";
@@ -36,17 +38,18 @@ import NativeAppMenuContext, { INativeAppMenu } from "./context/NativeAppMenuCon
 import NativeWindowContext, { INativeWindow } from "./context/NativeWindowContext";
 import { IDataSourceFactory } from "./context/PlayerSelectionContext";
 import CurrentLayoutProvider from "./providers/CurrentLayoutProvider";
-import ExtensionCatalogProvider from "./providers/ExtensionCatalogProvider";
+import ExtensionCatalogProvider from "./providers/ExtensionCatalogProvider/ExtensionCatalogProvider";
 import ExtensionMarketplaceProvider from "./providers/ExtensionMarketplaceProvider";
 import PanelCatalogProvider from "./providers/PanelCatalogProvider";
 import { LaunchPreference } from "./screens/LaunchPreference";
-import { ExtensionLoader } from "./services/ExtensionLoader";
+import { IExtensionLoader } from "./services/extension/IExtensionLoader";
 
-type AppProps = CustomWindowControlsProps & {
-  deepLinks: string[];
+export type AppProps = CustomWindowControlsProps & {
   appConfiguration: IAppConfiguration;
+  appParameters: AppParametersInput;
   dataSources: IDataSourceFactory[];
-  extensionLoaders: readonly ExtensionLoader[];
+  deepLinks: string[];
+  extensionLoaders: readonly IExtensionLoader[];
   layoutLoaders: readonly LayoutLoader[];
   nativeAppMenu?: INativeAppMenu;
   nativeWindow?: INativeWindow;
@@ -70,6 +73,7 @@ function contextMenuHandler(event: MouseEvent) {
 export function App(props: AppProps): React.JSX.Element {
   const {
     appConfiguration,
+    appParameters,
     dataSources,
     extensionLoaders,
     layoutLoaders,
@@ -104,18 +108,18 @@ export function App(props: AppProps): React.JSX.Element {
     providers.unshift(...extraProviders);
   }
 
-  // The toast and logs provider comes first so they are available to all downstream providers
-  providers.unshift(<StudioToastProvider />);
-  providers.unshift(<StudioLogsSettingsProvider />);
-
-  // Problems provider also must come before other, dependent contexts.
-  providers.unshift(<ProblemsContextProvider />);
+  // Alerts provider also must come before other, dependent contexts.
+  providers.unshift(<AlertsContextProvider />);
   providers.unshift(<CurrentLayoutProvider loaders={layoutLoaders} />);
   providers.unshift(<UserProfileLocalStorageProvider />);
   providers.unshift(<LayoutManagerProvider />);
 
   const layoutStorage = useMemo(() => new IdbLayoutStorage(), []);
   providers.unshift(<LayoutStorageContext.Provider value={layoutStorage} />);
+
+  // The toast and logs provider comes first so they are available to all downstream providers
+  providers.unshift(<StudioToastProvider />);
+  providers.unshift(<StudioLogsSettingsProvider />);
 
   const MaybeLaunchPreference = enableLaunchPreferenceScreen === true ? LaunchPreference : Fragment;
 
@@ -128,36 +132,38 @@ export function App(props: AppProps): React.JSX.Element {
 
   return (
     <AppConfigurationContext.Provider value={appConfiguration}>
-      <ColorSchemeThemeProvider>
-        {enableGlobalCss && <GlobalCss />}
-        <CssBaseline>
-          <ErrorBoundary>
-            <MaybeLaunchPreference>
-              <MultiProvider providers={providers}>
-                <DocumentTitleAdapter />
-                <SendNotificationToastAdapter />
-                <DndProvider backend={HTML5Backend}>
-                  <Suspense fallback={<></>}>
-                    <PanelCatalogProvider>
-                      <Workspace
-                        deepLinks={deepLinks}
-                        appBarLeftInset={props.appBarLeftInset}
-                        onAppBarDoubleClick={props.onAppBarDoubleClick}
-                        showCustomWindowControls={props.showCustomWindowControls}
-                        isMaximized={props.isMaximized}
-                        onMinimizeWindow={props.onMinimizeWindow}
-                        onMaximizeWindow={props.onMaximizeWindow}
-                        onUnmaximizeWindow={props.onUnmaximizeWindow}
-                        onCloseWindow={props.onCloseWindow}
-                      />
-                    </PanelCatalogProvider>
-                  </Suspense>
-                </DndProvider>
-              </MultiProvider>
-            </MaybeLaunchPreference>
-          </ErrorBoundary>
-        </CssBaseline>
-      </ColorSchemeThemeProvider>
+      <AppParametersProvider appParameters={appParameters}>
+        <ColorSchemeThemeProvider>
+          {enableGlobalCss && <GlobalCss />}
+          <CssBaseline>
+            <ErrorBoundary>
+              <MaybeLaunchPreference>
+                <MultiProvider providers={providers}>
+                  <DocumentTitleAdapter />
+                  <SendNotificationToastAdapter />
+                  <DndProvider backend={HTML5Backend}>
+                    <Suspense fallback={<></>}>
+                      <PanelCatalogProvider>
+                        <Workspace
+                          deepLinks={deepLinks}
+                          appBarLeftInset={props.appBarLeftInset}
+                          onAppBarDoubleClick={props.onAppBarDoubleClick}
+                          showCustomWindowControls={props.showCustomWindowControls}
+                          isMaximized={props.isMaximized}
+                          onMinimizeWindow={props.onMinimizeWindow}
+                          onMaximizeWindow={props.onMaximizeWindow}
+                          onUnmaximizeWindow={props.onUnmaximizeWindow}
+                          onCloseWindow={props.onCloseWindow}
+                        />
+                      </PanelCatalogProvider>
+                    </Suspense>
+                  </DndProvider>
+                </MultiProvider>
+              </MaybeLaunchPreference>
+            </ErrorBoundary>
+          </CssBaseline>
+        </ColorSchemeThemeProvider>
+      </AppParametersProvider>
     </AppConfigurationContext.Provider>
   );
 }

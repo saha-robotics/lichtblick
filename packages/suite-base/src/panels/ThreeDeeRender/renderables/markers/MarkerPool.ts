@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -67,7 +67,7 @@ export class MarkerPool {
   }
 
   public release(renderable: RenderableMarker): void {
-    const type = renderable.userData.marker.type as MarkerType;
+    const type = renderable.userData.marker.type;
     const renderables = this.#renderablesByType.get(type);
     if (!renderables) {
       this.#renderablesByType.set(type, [renderable]);

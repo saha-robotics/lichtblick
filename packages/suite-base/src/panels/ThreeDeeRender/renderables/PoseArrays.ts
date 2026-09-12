@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -16,8 +16,6 @@ import type { RosValue } from "@lichtblick/suite-base/players/types";
 
 import { Axis, AXIS_LENGTH } from "./Axis";
 import { createArrowMarker } from "./Poses";
-import { RenderableArrow } from "./markers/RenderableArrow";
-import { RenderableLineStrip } from "./markers/RenderableLineStrip";
 import type { AnyRendererSubscription, IRenderer } from "../IRenderer";
 import { BaseUserData, Renderable } from "../Renderable";
 import {
@@ -49,6 +47,8 @@ import {
 } from "../settings";
 import { topicIsConvertibleToSchema } from "../topicIsConvertibleToSchema";
 import { makePose, Pose } from "../transforms";
+import { RenderableArrow } from "./markers/RenderableArrow";
+import { RenderableLineStrip } from "./markers/RenderableLineStrip";
 
 type GradientRgba = [ColorRGBA, ColorRGBA];
 type Gradient = [string, string];
@@ -250,9 +250,7 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
     const topicName = path[1]!;
     const renderable = this.renderables.get(topicName);
     if (renderable) {
-      const settings = this.renderer.config.topics[topicName] as
-        | Partial<LayerSettingsPoseArray>
-        | undefined;
+      const settings = this.renderer.config.topics[topicName];
       const defaultType = { type: getDefaultType(this.renderer.topicsByName?.get(topicName)) };
       this.#updatePoseArrayRenderable(
         renderable,
@@ -295,9 +293,7 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
     let renderable = this.renderables.get(topic);
     if (!renderable) {
       // Set the initial settings from default values merged with any user settings
-      const userSettings = this.renderer.config.topics[topic] as
-        | Partial<LayerSettingsPoseArray>
-        | undefined;
+      const userSettings = this.renderer.config.topics[topic];
       const defaultType = { type: getDefaultType(this.renderer.topicsByName?.get(topic)) };
       const settings = { ...DEFAULT_SETTINGS, ...defaultType, ...userSettings };
 

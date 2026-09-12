@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -29,6 +29,16 @@ import { inWebWorker } from "@lichtblick/suite-base/util/workers";
 export type NotificationType = "app" | "user";
 export type DetailsType = string | Error | ReactNode;
 export type NotificationSeverity = "error" | "warn" | "info";
+
+/**
+ * Relative priority of notification severities, highest value is most severe. Used to find the most
+ * severe alert in a collection and to sort alerts by severity.
+ */
+export const NOTIFICATION_SEVERITY_PRIORITY: Record<NotificationSeverity, number> = {
+  error: 2,
+  warn: 1,
+  info: 0,
+};
 export type NotificationHandler = (
   message: string,
   details: DetailsType,

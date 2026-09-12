@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -59,8 +59,8 @@ function InteractionContextMenuItem({
 }
 
 export function InteractionContextMenu({
-  clickedObjects = [],
-  clickedPosition = { clientX: 0, clientY: 0 },
+  clickedObjects,
+  clickedPosition,
   onClose,
   selectObject,
 }: Props): React.JSX.Element {
@@ -73,8 +73,10 @@ export function InteractionContextMenu({
         top: clickedPosition.clientY,
         left: clickedPosition.clientX,
       }}
-      MenuListProps={{
-        dense: true,
+      slotProps={{
+        list: {
+          dense: true,
+        },
       }}
     >
       {clickedObjects.map((interactiveObject, index) => (

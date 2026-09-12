@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -27,6 +27,15 @@ export const threeDee = {
     "The coordinate frame to place the camera in. The camera position and orientation will be relative to the origin of this frame.",
   editable: "Editable",
   enablePreloading: "Enable preloading",
+  enablePreloadingTooltip:
+    "Please be aware that performance may be impacted when turning preloading on.",
+  maxPreloadMessages: "Max preload messages",
+  maxPreloadMessagesTooltip:
+    "Maximum number of transform messages to keep in memory when preloading is enabled. Higher values provide more history but use more memory.",
+  clearPreloadBuffer: "Clear preload buffer",
+  transformPreloadAlert: "Transform topics detected",
+  transformPreloadAlertTip:
+    "Activating preloading (3D/Image panel -> Transforms -> Settings) is recommended for accurate visualization of transform topics. NOTE: this may impact performance.",
   fixed: "Fixed",
   followMode: "Follow mode",
   followModeHelp: "Change the camera behavior during playback to follow the display frame or not.",
@@ -62,6 +71,15 @@ export const threeDee = {
   takeEffectAfterReboot: "This setting requires a restart to take effect",
   YUp: "Y-up",
   ZUp: "Z-up",
+
+  // Lighting
+  mainLightMode: "Main light",
+  mainLightModeHelp:
+    "Fixed uses a world-space directional light. Headlight attaches the light to the camera so the scene is always lit from the viewer's perspective (similar to RViz).",
+  mainLightFixed: "Fixed (scene)",
+  mainLightHeadlight: "Headlight (camera)",
+  directionalLightIntensity: "Directional light intensity",
+  hemisphereLightIntensity: "Hemisphere light intensity",
 
   // Camera
   distance: "Distance",

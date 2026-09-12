@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -21,6 +21,7 @@ import {
   StateTransitionPath,
 } from "@lichtblick/suite-base/panels/StateTransitions/types";
 
+// eslint-disable-next-line @typescript-eslint/no-shadow
 export const PathLegend = React.memo(function PathLegend(props: PathLegendProps) {
   const { t } = useTranslation("stateTransitions");
   const { paths, heightPerTopic, setFocusedPath, saveConfig } = props;

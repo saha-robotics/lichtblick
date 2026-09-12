@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -23,23 +23,21 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (str: string, wut: any) => {
   console.log = () => 0;
-  console.log(str); // eslint-disable-line no-restricted-syntax
+  console.log(str);
 
   // All nulls are banned
-  wut == null; // eslint-disable-line no-restricted-syntax
+  wut == null;
 };
 
 // @ts-expect-error unused function
 function useEffectOnce() {} // eslint-disable-line id-denylist, @typescript-eslint/no-unused-vars
 
 class Foo {
-  private bar = 1; // eslint-disable-line @lichtblick/prefer-hash-private
-  private static baz = 1; // eslint-disable-line @lichtblick/prefer-hash-private
-  // eslint-disable-next-line @lichtblick/prefer-hash-private
+  private bar = 1;
+  private static baz = 1;
   private foo() {
     this.bar = 2;
   }
-  // eslint-disable-next-line @lichtblick/prefer-hash-private
   private static getBaz() {
     this.baz = 3;
     void this.baz;

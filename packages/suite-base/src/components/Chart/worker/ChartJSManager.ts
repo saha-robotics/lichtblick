@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -31,13 +31,20 @@ import EventEmitter from "eventemitter3";
 
 import { Zoom as ZoomPlugin } from "@lichtblick/chartjs-plugin-zoom";
 import Logger from "@lichtblick/log";
-import { RpcElement, RpcScales } from "@lichtblick/suite-base/components/Chart/types";
+import {
+  RpcElement,
+  RpcScales,
+  TypedChartData,
+} from "@lichtblick/suite-base/components/Chart/types";
+import {
+  addEventListener,
+  removeEventListener,
+} from "@lichtblick/suite-base/components/Chart/worker/eventHandler";
 import { maybeCast } from "@lichtblick/suite-base/util/maybeCast";
 import { fontMonospace } from "@lichtblick/theme";
 
 import { lineSegmentLabelColor } from "./lineSegments";
 import { proxyTyped } from "./proxy";
-import { TypedChartData } from "../types";
 
 const log = Logger.getLogger(__filename);
 
@@ -53,25 +60,6 @@ export type InitOpts = {
 
 // allows us to override the chart.ctx instance field which zoom plugin uses for adding event listeners
 type MutableContext<T> = Omit<Chart, "ctx"> & { ctx: T };
-
-function addEventListener(emitter: EventEmitter) {
-  return (eventName: string, fn?: () => void) => {
-    const existing = emitter.listeners(eventName);
-    if (!fn || existing.includes(fn)) {
-      return;
-    }
-
-    emitter.on(eventName, fn);
-  };
-}
-
-function removeEventListener(emitter: EventEmitter) {
-  return (eventName: string, fn?: () => void) => {
-    if (fn) {
-      emitter.off(eventName, fn);
-    }
-  };
-}
 
 type ZoomableChart = Chart & {
   $zoom: {
@@ -99,8 +87,8 @@ const lastX: InteractionModeFunction = (chart, event, _options, useFinalPosition
   // `getRelativePosition` function which seems to use a different declaration of the Chart type
   // than what is exported from chart.js.
   //
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
-  const position = getRelativePosition(event, chart as any);
+
+  const position = getRelativePosition(event, chart);
 
   // Create a sparse array to track the last datum for each dataset
   const datasetIndexToLastItem: InteractionItem[] = [];
@@ -448,7 +436,7 @@ export default class ChartJSManager {
       datalabelsOptions.formatter = (value: { label?: string }, _context: unknown) => {
         // Return "null" if we don't want this label to be displayed.
         // Returning "undefined" falls back to the default formatting and will display
-        // eslint-disable-next-line no-restricted-syntax
+
         return value.label ?? null;
       };
 

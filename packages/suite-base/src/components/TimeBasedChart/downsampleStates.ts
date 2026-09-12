@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -37,7 +37,7 @@ type Label = {
  */
 function addLabel(label: Label, labels: Immutable<Label[]>): Immutable<Label[]> {
   const last = labels.at(-1);
-  if (last != undefined && label.value === last.value) {
+  if (label.value === last?.value) {
     return labels;
   }
 

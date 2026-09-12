@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -203,14 +203,17 @@ describe("parseJsonSchema", () => {
         },
       },
     },
-  ])(
-    "converts schema to datatypes and decodes base64",
-    ({ name, schema, expectedDatatypes, value, expectedValue }) => {
-      const { datatypes, postprocessValue } = parseJsonSchema(schema, name);
-      expect(datatypes).toEqual(expectedDatatypes);
-      expect(postprocessValue(value)).toEqual(expectedValue);
-    },
-  );
+  ])("converts schema to datatypes and decodes base64", ({
+    name,
+    schema,
+    expectedDatatypes,
+    value,
+    expectedValue,
+  }) => {
+    const { datatypes, postprocessValue } = parseJsonSchema(schema, name);
+    expect(datatypes).toEqual(expectedDatatypes);
+    expect(postprocessValue(value)).toEqual(expectedValue);
+  });
 
   it("allows missing sub-properties", () => {
     const { postprocessValue } = parseJsonSchema(

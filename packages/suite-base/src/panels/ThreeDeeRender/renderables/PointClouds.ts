@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -33,7 +33,6 @@ import {
   getColorConverter,
   colorFieldComputedPrefix,
 } from "./colorMode";
-import { FieldReader, getReader, isSupportedField } from "./pointClouds/fieldReaders";
 import type { AnyRendererSubscription, IRenderer } from "../IRenderer";
 import { BaseUserData, Renderable } from "../Renderable";
 import { PartialMessage, PartialMessageEvent, SceneExtension } from "../SceneExtension";
@@ -54,6 +53,7 @@ import {
 } from "../ros";
 import { topicIsConvertibleToSchema } from "../topicIsConvertibleToSchema";
 import { makePose, Pose } from "../transforms";
+import { FieldReader, getReader, isSupportedField } from "./pointClouds/fieldReaders";
 
 type PointCloudFieldReaders = {
   xReader: FieldReader;
@@ -756,11 +756,10 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
     const finalQueue: MessageEvent<T>[] = [];
     for (const topic in msgsByTopic) {
       const topicMsgs = msgsByTopic[topic]!;
-      const userSettings = this.renderer.config.topics[topic] as
-        | Partial<LayerSettingsPointClouds>
-        | undefined;
+      const userSettings = (this.renderer.config.topics[topic] ??
+        {}) as Partial<LayerSettingsPointClouds>;
       // if the topic has a decaytime add all messages to queue for topic
-      if ((userSettings?.decayTime ?? DEFAULT_SETTINGS.decayTime) > 0) {
+      if ((userSettings.decayTime ?? DEFAULT_SETTINGS.decayTime) > 0) {
         finalQueue.push(...topicMsgs);
         continue;
       }
@@ -834,9 +833,7 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
     const topicName = path[1]!;
     const renderable = this.renderables.get(topicName);
     if (renderable) {
-      const prevSettings = this.renderer.config.topics[topicName] as
-        | Partial<LayerSettingsPointClouds>
-        | undefined;
+      const prevSettings = this.renderer.config.topics[topicName];
       const settings = { ...DEFAULT_SETTINGS, ...prevSettings };
       renderable.updatePointCloud(
         renderable.userData.latestPointCloud,
@@ -899,7 +896,7 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
       return numSupported + (isSupportedField(field) ? 1 : 0);
     }, 0);
     let fieldsForTopicUpdated = false;
-    if (!fields || fields.length !== numSupportedFields) {
+    if (fields?.length !== numSupportedFields) {
       // Omit fields with count != 1 (only applies to ros pointclouds)
       // can't use filterMap here because of incompatible types
       fields = pointCloud.fields.filter(isSupportedField).map((field) => field.name);
@@ -911,9 +908,8 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
     let renderable = this.renderables.get(topic);
     if (!renderable) {
       // Set the initial settings from default values merged with any user settings
-      const userSettings = this.renderer.config.topics[topic] as
-        | Partial<LayerSettingsPointClouds>
-        | undefined;
+      const userSettings = (this.renderer.config.topics[topic] ??
+        {}) as Partial<LayerSettingsPointClouds>;
       const settings = { ...DEFAULT_SETTINGS, ...userSettings };
 
       // want to avoid setting this if fields didn't update
@@ -970,7 +966,8 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
 }
 
 function pointFieldTypeName(type: PointFieldType): string {
-  return PointFieldType[type as number] ?? `${type}`;
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  return PointFieldType[type] ?? `${type}`;
 }
 
 function pointFieldWidth(type: PointFieldType): number {

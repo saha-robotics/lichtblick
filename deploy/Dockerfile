@@ -7,7 +7,7 @@
 # The web build is architecture-independent - static files - so it runs once, on
 # the builder's own platform, and only the nginx stage is assembled per
 # architecture. Without this an arm64 image would mean webpack under QEMU.
-FROM --platform=$BUILDPLATFORM node:20-alpine AS build
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 WORKDIR /src
 COPY . ./
 RUN corepack enable && yarn install --immutable && yarn run web:build:prod

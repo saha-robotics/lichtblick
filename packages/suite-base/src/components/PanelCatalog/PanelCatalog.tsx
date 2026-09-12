@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -79,6 +79,7 @@ type Props = {
   isMenu?: boolean;
 };
 
+// eslint-disable-next-line @typescript-eslint/no-shadow
 export const PanelCatalog = forwardRef<HTMLDivElement, Props>(function PanelCatalog(
   props: Props,
   ref,
@@ -223,23 +224,25 @@ export const PanelCatalog = forwardRef<HTMLDivElement, Props>(function PanelCata
           onKeyDown={onKeyDown}
           autoFocus
           data-testid="panel-list-textfield"
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon fontSize="small" />
-              </InputAdornment>
-            ),
-            endAdornment: searchQuery && (
-              <IconButton
-                size="small"
-                edge="end"
-                onClick={() => {
-                  setSearchQuery("");
-                }}
-              >
-                <CancelIcon fontSize="small" />
-              </IconButton>
-            ),
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+              endAdornment: searchQuery && (
+                <IconButton
+                  size="small"
+                  edge="end"
+                  onClick={() => {
+                    setSearchQuery("");
+                  }}
+                >
+                  <CancelIcon fontSize="small" />
+                </IconButton>
+              ),
+            },
           }}
         />
       </div>

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -16,7 +16,7 @@
 
 import { Database20Filled } from "@fluentui/react-icons";
 import { useTheme } from "@mui/material";
-import { StoryObj, StoryFn } from "@storybook/react";
+import { StoryObj, StoryFn } from "@storybook/react-webpack5";
 import { fireEvent, screen } from "@storybook/testing-library";
 import { PropsWithChildren } from "react";
 import { Mosaic, MosaicWindow } from "react-mosaic-component";

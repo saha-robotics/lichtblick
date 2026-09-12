@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -9,6 +9,7 @@ import { protocol, net } from "electron";
 import { promises as fs } from "fs";
 import path from "path";
 import { PNG } from "pngjs";
+import { pathToFileURL } from "url";
 import UTIF from "utif";
 
 import Logger from "@lichtblick/log";
@@ -157,7 +158,9 @@ export function registerRosPackageProtocolHandlers(): void {
 
       const resolvedResourcePath = path.join(pkgRoot, ...relPath.split("/"));
       log.info(`Resolved: ${resolvedResourcePath}`);
-      return await net.fetch(resolvedResourcePath);
+      // prepend the file:// protocol to the path
+      const fileUrl = pathToFileURL(resolvedResourcePath).toString();
+      return await net.fetch(fileUrl);
     } catch (err: unknown) {
       log.error("Error loading from ROS package url", request.url, err);
       return Response.error();
@@ -205,7 +208,7 @@ export function registerRosPackageProtocolHandlers(): void {
       const png = new PNG({ width: ifd.width, height: ifd.height });
       png.data = Buffer.from(UTIF.toRGBA8(ifd));
       const pngData = PNG.sync.write(png);
-      return new Response(Buffer.from(pngData), { headers: { "Content-Type": "image/png" } });
+      return new Response(new Uint8Array(pngData), { headers: { "Content-Type": "image/png" } });
     } catch (err: unknown) {
       log.warn("Error loading from ROS package url", request.url, err);
       return Response.error();

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -15,6 +15,7 @@ import { DeepPartial, assert } from "ts-essentials";
 import { v4 as uuidv4 } from "uuid";
 
 import { ObjectPool } from "@lichtblick/den/collection";
+import { CameraModelsMap } from "@lichtblick/den/image/types";
 import Logger from "@lichtblick/log";
 import { Time, fromNanoSec, isLessThan, toNanoSec } from "@lichtblick/rostime";
 import {
@@ -35,14 +36,16 @@ import {
   DraggedMessagePath,
   MessagePathDropStatus,
 } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
-import { HUDItemManager } from "@lichtblick/suite-base/panels/ThreeDeeRender/HUDItemManager";
+import {
+  HUDItemManager,
+  HUDItem,
+} from "@lichtblick/suite-base/panels/ThreeDeeRender/HUDItemManager";
 import { LayerErrors } from "@lichtblick/suite-base/panels/ThreeDeeRender/LayerErrors";
 import { ICameraHandler } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ICameraHandler";
 import IAnalytics from "@lichtblick/suite-base/services/IAnalytics";
 import { palette, fontMonospace } from "@lichtblick/theme";
 import { LabelMaterial, LabelPool } from "@lichtblick/three-text";
 
-import { HUDItem } from "./HUDItemManager";
 import {
   IRenderer,
   InstancedLineMaterial,
@@ -50,6 +53,7 @@ import {
   RendererEvents,
   RendererSubscription,
   TestOptions,
+  AddMessageEventOptions,
 } from "./IRenderer";
 import { Input } from "./Input";
 import { DEFAULT_MESH_UP_AXIS, ModelCache } from "./ModelCache";
@@ -62,6 +66,7 @@ import { SettingsManager, SettingsTreeEntry } from "./SettingsManager";
 import { SharedGeometry } from "./SharedGeometry";
 import { CameraState } from "./camera";
 import { DARK_OUTLINE, LIGHT_OUTLINE, stringToRgb } from "./color";
+import { HOVER_PICK_THROTTLE_MS } from "./constants";
 import { FRAME_TRANSFORMS_DATATYPES, FRAME_TRANSFORM_DATATYPES } from "./foxglove";
 import { DetailLevel, msaaSamples } from "./lod";
 import {
@@ -154,6 +159,19 @@ Object.defineProperty(LabelMaterial.prototype, "fragmentShaderKey", {
   configurable: true,
 });
 
+type StaticTransform = {
+  parentFrameId: string;
+  childFrameId: string;
+  stamp: bigint;
+  translation: Vector3;
+  rotation: Quaternion;
+};
+
+/** Whether a topic name follows the `/tf_static`-style naming convention for latched, permanently valid transforms */
+function isStaticTransformTopic(topic: string): boolean {
+  return topic.endsWith("tf_static") || topic.endsWith("static_transform");
+}
+
 /**
  * An extensible 3D renderer attached to a `HTMLCanvasElement`,
  * `WebGLRenderingContext`, and `SettingsTree`.
@@ -163,6 +181,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   #canvas: HTMLCanvasElement;
   public readonly gl: THREE.WebGLRenderer;
   public maxLod = DetailLevel.High;
+
+  public customCameraModels: CameraModelsMap = new Map();
 
   public debugPicking: boolean;
   public config: Immutable<RendererConfig>;
@@ -190,6 +210,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   #customLayerActions = new Map<string, CustomLayerAction>();
   #scene: THREE.Scene;
   #dirLight: THREE.DirectionalLight;
+  /** Camera-attached directional light used when `scene.mainLightMode` is `"headlight"` */
+  readonly #headLight: THREE.DirectionalLight;
   #hemiLight: THREE.HemisphereLight;
   public input: Input;
   public readonly outlineMaterial = new THREE.LineBasicMaterial({ dithering: true });
@@ -224,6 +246,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     maxCapacity: 5 * DEFAULT_MAX_CAPACITY_PER_FRAME,
   });
   public transformTree = new TransformTree(this.#transformPool);
+  readonly #staticTransformCache = new Map<string, StaticTransform>();
 
   public coordinateFrameList: SelectEntry[] = [];
   public currentTime = 0n;
@@ -252,11 +275,13 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     config: Immutable<RendererConfig>;
     interfaceMode: InterfaceMode;
     sceneExtensionConfig: SceneExtensionConfig;
+    customCameraModels: CameraModelsMap;
     fetchAsset: BuiltinPanelExtensionContext["unstable_fetchAsset"];
     displayTemporaryError?: (message: string) => void;
     testOptions: TestOptions;
   }) {
     super();
+    this.customCameraModels = args.customCameraModels;
     this.displayTemporaryError = args.displayTemporaryError;
     // NOTE: Global side effect
     THREE.Object3D.DEFAULT_UP = new THREE.Vector3(0, 0, 1);
@@ -286,10 +311,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     if (!this.gl.capabilities.isWebGL2) {
       throw new Error("WebGL2 is not supported");
     }
-    this.gl.toneMapping = THREE.NoToneMapping;
     this.gl.autoClear = false;
     this.gl.info.autoReset = false;
-    this.gl.shadowMap.enabled = false;
     this.gl.shadowMap.type = THREE.VSMShadowMap;
     this.gl.sortObjects = true;
     this.gl.setPixelRatio(window.devicePixelRatio);
@@ -322,11 +345,21 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     this.#dirLight.shadow.camera.far = 500;
     this.#dirLight.shadow.bias = -0.00001;
 
+    this.#headLight = new THREE.DirectionalLight(0xffffff, Math.PI);
+    this.#headLight.layers.enableAll();
+    this.#headLight.castShadow = true;
+    this.#headLight.shadow.mapSize.width = 2048;
+    this.#headLight.shadow.mapSize.height = 2048;
+    this.#headLight.shadow.camera.near = 0.5;
+    this.#headLight.shadow.camera.far = 500;
+    this.#headLight.shadow.bias = -0.00001;
+
     this.#hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.5 * Math.PI);
     this.#hemiLight.layers.enableAll();
 
     this.#scene.add(this.#dirLight);
     this.#scene.add(this.#hemiLight);
+    this.updateSceneRenderSettings();
 
     this.input = new Input(canvas, () => this.cameraHandler.getActiveCamera());
     this.input.on("resize", (size) => {
@@ -334,6 +367,30 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     });
     this.input.on("click", (cursorCoords) => {
       this.#clickHandler(cursorCoords);
+    });
+
+    // Throttled hover picking: perform GPU pick on mousemove at 10 Hz
+    // Mouse position is emitted on every move for smooth tooltip following.
+    let hoverThrottleTimer: ReturnType<typeof setTimeout> | undefined;
+    let isMouseDown = false;
+    this.input.on("mousedown", () => {
+      isMouseDown = true;
+    });
+    this.input.on("mouseup", () => {
+      isMouseDown = false;
+    });
+    this.input.on("mousemove", (cursorCoords) => {
+      if (isMouseDown || !this.#pickingEnabled) {
+        return;
+      }
+      this.emit("hoverMoved", cursorCoords, this);
+      if (hoverThrottleTimer != undefined) {
+        return;
+      }
+      hoverThrottleTimer = setTimeout(() => {
+        hoverThrottleTimer = undefined;
+      }, HOVER_PICK_THROTTLE_MS);
+      this.#hoverHandler(cursorCoords);
     });
 
     this.#picker = new Picker(this.gl, this.#scene);
@@ -436,6 +493,9 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     this.sharedGeometry.dispose();
     this.modelCache.dispose();
 
+    this.#headLight.removeFromParent();
+    this.#headLight.target.removeFromParent();
+    this.#headLight.dispose();
     this.labelPool.dispose();
     this.markerPool.dispose();
     this.#transformPool.clear();
@@ -465,15 +525,96 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   public setCurrentTime(newTimeNs: bigint): void {
     this.currentTime = newTimeNs;
   }
+
+  /**
+   * Binary search to find the index of the last message with receiveTime <= targetTime
+   * @param messages - sorted array of messages by receiveTime
+   * @param targetTime - time to search for
+   * @returns index of the last message <= targetTime, or -1 if all messages are after targetTime
+   */
+  #binarySearchTimeIndex(messages: readonly MessageEvent[], targetTime: Time): number {
+    let left = 0;
+    let right = messages.length - 1;
+    let result = -1;
+
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      const midMessage = messages[mid];
+      if (!midMessage) {
+        break;
+      }
+
+      if (isLessThan(midMessage.receiveTime, targetTime)) {
+        result = mid;
+        left = mid + 1;
+      } else if (isLessThan(targetTime, midMessage.receiveTime)) {
+        right = mid - 1;
+      } else {
+        // Equal times
+        result = mid;
+        break;
+      }
+    }
+
+    return result;
+  }
+
   /**
    * Updates renderer state according to seek delta. Handles clearing of future state and resetting of allFrames cursor if seeked backwards
    * Should be called after `setCurrentTime` as been called
    * @param oldTime used to determine if seeked backwards
    */
-  public handleSeek(oldTimeNs: bigint): void {
+  public handleSeek(oldTimeNs: bigint, allFrames?: readonly MessageEvent[]): void {
     const movedBack = this.currentTime < oldTimeNs;
-    // want to clear transforms and reset the cursor if we seek backwards
-    this.clear({ clearTransforms: movedBack, resetAllFramesCursor: movedBack });
+
+    if (movedBack && allFrames && allFrames.length > 0) {
+      // Optimized backward seek: use binary search to find new cursor position
+      const targetTime = fromNanoSec(this.currentTime);
+      const newCursorIndex = this.#binarySearchTimeIndex(allFrames, targetTime);
+
+      // Clear transforms after current time instead of clearing everything
+      this.transformTree.clearAfter(this.currentTime);
+      this.#reapplyStaticTransforms();
+
+      // Update cursor to new position
+      this.#allFramesCursor = {
+        index: newCursorIndex,
+        lastReadMessage: newCursorIndex >= 0 ? allFrames[newCursorIndex] : undefined,
+        cursorTimeReached: targetTime,
+      };
+
+      // Clear subscription queues and renderables but preserve valid transforms
+      this.#clearSubscriptionQueues();
+      this.settings.errors.clear();
+      this.hud.clear();
+
+      for (const extension of this.sceneExtensions.values()) {
+        extension.removeAllRenderables();
+      }
+      this.queueAnimationFrame();
+    } else {
+      // Forward seek or no allFrames available - use original behavior
+      this.clear({
+        clearTransforms: movedBack,
+        resetAllFramesCursor: movedBack,
+        preserveStaticTransforms: movedBack,
+      });
+      if (movedBack) {
+        this.#reapplyStaticTransforms();
+      }
+    }
+  }
+
+  #reapplyStaticTransforms(): void {
+    const cache = this.#staticTransformCache;
+    for (const [childFrameId, { parentFrameId, stamp, translation, rotation }] of cache) {
+      const result = this.addTransform(parentFrameId, childFrameId, stamp, translation, rotation);
+      if (result === AddTransformResult.CYCLE_DETECTED) {
+        // The cached transform no longer fits the tree (e.g. an intervening dynamic transform
+        // now makes it cyclic); drop it so later backward seeks stop retrying it.
+        cache.delete(childFrameId);
+      }
+    }
   }
 
   /**
@@ -488,24 +629,28 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
    * @param {boolean} params.resetAllFramesCursor - whether to reset the cursor for the allFrames array.
    * Order to clear ImageMode renderables or not. Defaults to true. Not relevant in 3D panel.
    * @param {boolean} params.clearImageModeExtension - whether to reset ImageMode renderables in clear.
+   * @param {boolean} params.preserveStaticTransforms - whether to preserve the static transform cache during a transform tree clear.
    */
   public clear(
     {
       clearTransforms,
       resetAllFramesCursor,
       clearImageModeExtension = true,
+      preserveStaticTransforms = false,
     }: {
       clearTransforms?: boolean;
       resetAllFramesCursor?: boolean;
       clearImageModeExtension?: boolean;
+      preserveStaticTransforms?: boolean;
     } = {
       clearTransforms: false,
       resetAllFramesCursor: false,
+      preserveStaticTransforms: false,
     },
   ): void {
     this.#clearSubscriptionQueues();
     if (clearTransforms === true) {
-      this.#clearTransformTree();
+      this.#clearTransformTree(preserveStaticTransforms);
     }
     if (resetAllFramesCursor === true) {
       this.#resetAllFramesCursor();
@@ -593,9 +738,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     // in this case we should set the cursor to the end of allFrames
     cursor = Math.min(cursor, allFrames.length - 1);
 
+    // Collect messages to process in batch
+    const messagesToProcess: MessageEvent[] = [];
     let message;
 
-    let hasAddedMessageEvents = false;
     // load preloaded messages up to current time
     while (cursor < allFrames.length - 1) {
       cursor++;
@@ -607,15 +753,18 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
         cursor--;
         break;
       }
-      if (!hasAddedMessageEvents) {
-        hasAddedMessageEvents = true;
-      }
 
-      this.addMessageEvent(message);
+      messagesToProcess.push(message);
       lastReadMessage = message;
       if (cursor === allFrames.length - 1) {
         cursorTimeReached = message.receiveTime;
       }
+    }
+
+    // Process all collected messages in batch if any were found
+    const hasAddedMessageEvents = messagesToProcess.length > 0;
+    if (hasAddedMessageEvents) {
+      this.addMessageEventBatch(messagesToProcess);
     }
 
     // want to avoid setting anything if nothing has changed
@@ -642,7 +791,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
   #addTransformSubscriptions(): void {
     const config = this.config;
-    const preloadTransforms = config.scene.transforms?.enablePreloading ?? true;
+    const preloadTransforms = config.scene.transforms?.enablePreloading ?? false;
     // Internal handlers for TF messages to update the transform tree
     this.#addSchemaSubscriptions(FRAME_TRANSFORM_DATATYPES, {
       handler: this.#handleFrameTransform,
@@ -664,14 +813,28 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       shouldSubscribe: () => true,
       preload: preloadTransforms,
     });
-    this.off("resetAllFramesCursor", this.#clearTransformTree);
+    this.off("resetAllFramesCursor", this.#onResetAllFramesCursor);
     if (preloadTransforms) {
-      this.on("resetAllFramesCursor", this.#clearTransformTree);
+      this.on("resetAllFramesCursor", this.#onResetAllFramesCursor);
     }
   }
 
-  #clearTransformTree = () => {
+  // eslint-disable-next-line @lichtblick/no-boolean-parameters
+  readonly #clearTransformTree = (preserveStaticTransforms?: boolean) => {
     this.transformTree.clear();
+    if (preserveStaticTransforms !== true) {
+      this.#staticTransformCache.clear();
+    }
+  };
+
+  /**
+   * `resetAllFramesCursor` event handler: clears the transform tree so preloaded transforms are
+   * re-read from the start of `allFrames`, but keeps the static transform cache. The cache exists
+   * precisely to survive seek-driven tree clears, and this event is emitted during a seek. It is
+   * only dropped on a genuine data source reset, via `clear()` without `preserveStaticTransforms`.
+   */
+  readonly #onResetAllFramesCursor = (): void => {
+    this.#clearTransformTree(true);
   };
 
   // Call on scene extensions to add subscriptions to the renderer
@@ -771,15 +934,16 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   /** Adds errors to visible topic nodes when calibration is undefined */
   #imageOnlyModeTopicSettingsValidator = (entry: SettingsTreeEntry, errors: LayerErrors) => {
     const { path, node } = entry;
-    if (path[0] === "topics") {
+    const topicName = path[1];
+    if (path[0] === "topics" && topicName != undefined) {
       if (node.visible === true) {
         errors.addToTopic(
-          path[1]!,
+          topicName,
           "IMAGE_ONLY_TOPIC",
           "Camera calibration information is required to display 3D topics",
         );
       } else {
-        errors.removeFromTopic(path[1]!, "IMAGE_ONLY_TOPIC");
+        errors.removeFromTopic(topicName, "IMAGE_ONLY_TOPIC");
       }
     }
   };
@@ -882,6 +1046,50 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     }
   }
 
+  public updateSceneRenderSettings(): void {
+    const mainLightMode = this.config.scene.mainLightMode ?? "fixed";
+    const dirIntensity = this.config.scene.directionalLightIntensity ?? Math.PI;
+
+    if (mainLightMode === "headlight") {
+      if (this.#dirLight.parent != undefined) {
+        this.#dirLight.removeFromParent();
+      }
+      this.#dirLight.castShadow = false;
+
+      this.#headLight.intensity = dirIntensity;
+      this.#headLight.castShadow = false;
+    } else {
+      if (this.#headLight.parent != undefined) {
+        this.#headLight.removeFromParent();
+        this.#headLight.target.removeFromParent();
+      }
+      this.#headLight.castShadow = false;
+
+      if (this.#dirLight.parent !== this.#scene) {
+        this.#scene.add(this.#dirLight);
+      }
+      this.#dirLight.intensity = dirIntensity;
+      this.#dirLight.castShadow = false;
+    }
+
+    this.#hemiLight.intensity = this.config.scene.hemisphereLightIntensity ?? 0.5 * Math.PI;
+  }
+
+  /** Attach the headlight to the active camera each frame (Perspective vs Orthographic can swap). */
+  #syncMainLightToCamera(camera: THREE.PerspectiveCamera | THREE.OrthographicCamera): void {
+    if ((this.config.scene.mainLightMode ?? "fixed") !== "headlight") {
+      return;
+    }
+    if (this.#headLight.parent !== camera) {
+      this.#headLight.removeFromParent();
+      this.#headLight.target.removeFromParent();
+      camera.add(this.#headLight);
+      camera.add(this.#headLight.target);
+      this.#headLight.position.set(0, 0, 0);
+      this.#headLight.target.position.set(0, 0, -1);
+    }
+  }
+
   /** Update the list of topics and rebuild all settings nodes when the identity
    * of the topics list changes */
   public setTopics(topics: ReadonlyArray<Topic> | undefined): void {
@@ -962,7 +1170,63 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     }
   }
 
-  public addMessageEvent(messageEvent: Readonly<MessageEvent>): void {
+  private queueByKey(
+    groups: Map<string, MessageEvent[]>,
+    subscriptions: Map<string, RendererSubscription[]>,
+  ): void {
+    for (const [key, messageEvents] of groups) {
+      const subs = subscriptions.get(key);
+      if (!subs) {
+        continue;
+      }
+
+      for (const sub of subs) {
+        sub.queue ??= [];
+        sub.queue.push(...messageEvents);
+      }
+    }
+  }
+
+  /**
+   * Batch version of addMessageEvent that processes multiple messages more efficiently
+   * by grouping them by topic/schema before queueing
+   */
+  public addMessageEventBatch(messageEvents: readonly MessageEvent[]): void {
+    // Extract coordinate frames from all messages
+    for (const messageEvent of messageEvents) {
+      this.addMessageEvent(messageEvent, { inBatch: true });
+    }
+
+    // Group messages by topic and schema for efficient batching
+    const messagesByTopic = new Map<string, MessageEvent[]>();
+    const messagesBySchema = new Map<string, MessageEvent[]>();
+    for (const msg of messageEvents) {
+      // Group by topic
+      let topicMessages = messagesByTopic.get(msg.topic);
+      if (topicMessages == undefined) {
+        topicMessages = [];
+        messagesByTopic.set(msg.topic, topicMessages);
+      }
+      topicMessages.push(msg);
+
+      // Group by schema
+      let schemaMessages = messagesBySchema.get(msg.schemaName);
+      if (schemaMessages == undefined) {
+        schemaMessages = [];
+        messagesBySchema.set(msg.schemaName, schemaMessages);
+      }
+      schemaMessages.push(msg);
+    }
+
+    // Queue messages in batches
+    this.queueByKey(messagesByTopic, this.topicSubscriptions);
+    this.queueByKey(messagesBySchema, this.schemaSubscriptions);
+  }
+
+  public addMessageEvent(
+    messageEvent: Readonly<MessageEvent>,
+    options?: Partial<AddMessageEventOptions>,
+  ): void {
     const { message } = messageEvent;
 
     const maybeHasHeader = message as DeepPartial<{ header: Header }>;
@@ -996,6 +1260,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       this.addCoordinateFrame(maybeHasFrameId.frame_id);
     }
 
+    if (options?.inBatch === true) {
+      return;
+    }
+
     queueMessage(messageEvent, this.topicSubscriptions.get(messageEvent.topic));
     queueMessage(messageEvent, this.schemaSubscriptions.get(messageEvent.schemaName));
   }
@@ -1023,7 +1291,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     }
   }
 
-  #addFrameTransform(transform: FrameTransform): void {
+  #addFrameTransform(transform: FrameTransform, options?: { isStatic?: boolean }): void {
     const parentId = transform.parent_frame_id;
     const childId = transform.child_frame_id;
     try {
@@ -1031,7 +1299,17 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       const t = transform.translation;
       const q = transform.rotation;
 
-      this.addTransform(parentId, childId, stamp, t, q);
+      const result = this.addTransform(parentId, childId, stamp, t, q);
+
+      if (options?.isStatic === true && result !== AddTransformResult.CYCLE_DETECTED) {
+        this.#staticTransformCache.set(childId, {
+          parentFrameId: parentId,
+          childFrameId: childId,
+          stamp,
+          translation: t,
+          rotation: q,
+        });
+      }
     } catch (e: unknown) {
       const err = e as Error;
       this.settings.errors.add(
@@ -1042,7 +1320,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     }
   }
 
-  #addTransformMessage(tf: TransformStamped): void {
+  #addTransformMessage(tf: TransformStamped, options?: { isStatic?: boolean }): void {
     const normalizedParentId = this.normalizeFrameId(tf.header.frame_id);
     const normalizedChildId = this.normalizeFrameId(tf.child_frame_id);
     try {
@@ -1050,7 +1328,17 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       const t = tf.transform.translation;
       const q = tf.transform.rotation;
 
-      this.addTransform(normalizedParentId, normalizedChildId, stamp, t, q);
+      const result = this.addTransform(normalizedParentId, normalizedChildId, stamp, t, q);
+
+      if (options?.isStatic === true && result !== AddTransformResult.CYCLE_DETECTED) {
+        this.#staticTransformCache.set(normalizedChildId, {
+          parentFrameId: normalizedParentId,
+          childFrameId: normalizedChildId,
+          stamp,
+          translation: t,
+          rotation: q,
+        });
+      }
     } catch (e: unknown) {
       const err = e as Error;
       this.settings.errors.add(
@@ -1069,7 +1357,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     translation: Vector3,
     rotation: Quaternion,
     errorSettingsPath?: string[],
-  ): void {
+  ): AddTransformResult {
     const t = translation;
     const q = rotation;
 
@@ -1116,6 +1404,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
         `[Warning] Transform history is at capacity (${frame.maxCapacity}), old TFs will be dropped`,
       );
     }
+    return status;
   }
 
   public removeTransform(childFrameId: string, parentFrameId: string, stamp: bigint): void {
@@ -1127,7 +1416,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   // Callback handlers
 
   public animationFrame = (): void => {
-    this.#animationFrame = undefined;
+    // Cancel any requestAnimationFrame (rAF) that `queueAnimationFrame()` scheduled. When this runs synchronously (e.g. a
+    // seek's `handleSeek`/`clear` queued a frame and the render-if-requested effect then calls us
+    // directly in the same tick) the queued rAF would otherwise fire on the next tick and paint a
+    // redundant second frame.
+    if (this.#animationFrame != undefined) {
+      cancelAnimationFrame(this.#animationFrame);
+      this.#animationFrame = undefined;
+    }
     if (!this.#rendering) {
       this.#frameHandler(this.currentTime);
       this.#rendering = false;
@@ -1138,6 +1434,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     if (this.#animationFrame == undefined) {
       this.#animationFrame = requestAnimationFrame(this.animationFrame);
     }
+  }
+
+  public async settleVideoDecodes(): Promise<void> {
+    await Promise.all(
+      Array.from(this.sceneExtensions.values(), async (ext) => {
+        await ext.settleVideoDecodes();
+      }),
+    );
   }
 
   public setFollowFrameId(frameId: string | undefined): void {
@@ -1166,6 +1470,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     this.emit("startFrame", currentTime, this);
 
     const camera = this.cameraHandler.getActiveCamera();
+    this.#syncMainLightToCamera(camera);
     camera.layers.set(LAYER_DEFAULT);
 
     // use the FALLBACK_FRAME_ID if renderFrame is undefined and there are no options for transforms
@@ -1298,32 +1603,70 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     this.emit("renderablesClicked", selections, cursorCoords, this);
   };
 
-  #handleFrameTransform = ({ message }: MessageEvent<DeepPartial<FrameTransform>>): void => {
+  readonly #hoverHandler = (cursorCoords: THREE.Vector2): void => {
+    if (!this.#pickingEnabled) {
+      return;
+    }
+    // Disable hover picking while a tool is active
+    if (this.measurementTool.state !== "idle" || this.publishClickTool.state !== "idle") {
+      return;
+    }
+
+    const camera = this.cameraHandler.getActiveCamera();
+    const selections: PickedRenderable[] = [];
+    let curSelection: PickedRenderable | undefined = this.#pickSingleObject(cursorCoords);
+    while (curSelection && selections.length < MAX_SELECTIONS) {
+      selections.push(curSelection);
+      curSelection.renderable.visible = false;
+      this.gl.render(this.#scene, camera);
+      curSelection = this.#pickSingleObject(cursorCoords);
+    }
+    for (const selection of selections) {
+      selection.renderable.visible = true;
+    }
+    this.animationFrame();
+    this.emit("renderableHovered", selections, cursorCoords, this);
+  };
+
+  readonly #handleFrameTransform = ({
+    message,
+    topic,
+  }: MessageEvent<DeepPartial<FrameTransform>>): void => {
     // foxglove.FrameTransform - Ingest this single transform into our TF tree
     const transform = normalizeFrameTransform(message);
-    this.#addFrameTransform(transform);
+    const isStatic = isStaticTransformTopic(topic);
+    this.#addFrameTransform(transform, { isStatic });
   };
 
-  #handleFrameTransforms = ({ message }: MessageEvent<DeepPartial<FrameTransforms>>): void => {
+  readonly #handleFrameTransforms = ({
+    message,
+    topic,
+  }: MessageEvent<DeepPartial<FrameTransforms>>): void => {
     // foxglove.FrameTransforms - Ingest the list of transforms into our TF tree
     const frameTransforms = normalizeFrameTransforms(message);
+    const isStatic = isStaticTransformTopic(topic);
     for (const transform of frameTransforms.transforms) {
-      this.#addFrameTransform(transform);
+      this.#addFrameTransform(transform, { isStatic });
     }
   };
 
-  #handleTFMessage = ({ message }: MessageEvent<DeepPartial<TFMessage>>): void => {
+  readonly #handleTFMessage = ({ message, topic }: MessageEvent<DeepPartial<TFMessage>>): void => {
     // tf2_msgs/TFMessage - Ingest the list of transforms into our TF tree
     const tfMessage = normalizeTFMessage(message);
+    const isStatic = isStaticTransformTopic(topic);
     for (const tf of tfMessage.transforms) {
-      this.#addTransformMessage(tf);
+      this.#addTransformMessage(tf, { isStatic });
     }
   };
 
-  #handleTransformStamped = ({ message }: MessageEvent<DeepPartial<TransformStamped>>): void => {
+  readonly #handleTransformStamped = ({
+    message,
+    topic,
+  }: MessageEvent<DeepPartial<TransformStamped>>): void => {
     // geometry_msgs/TransformStamped - Ingest this single transform into our TF tree
     const tf = normalizeTransformStamped(message);
-    this.#addTransformMessage(tf);
+    const isStatic = isStaticTransformTopic(topic);
+    this.#addTransformMessage(tf, { isStatic });
   };
 
   #handleTopicsAction = (action: SettingsTreeAction): void => {
@@ -1533,6 +1876,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
   public setAnalytics(analytics: IAnalytics): void {
     this.analytics = analytics;
+  }
+
+  public setCustomCameraModels(newCameraModels: CameraModelsMap): void {
+    this.customCameraModels = newCameraModels;
   }
 }
 

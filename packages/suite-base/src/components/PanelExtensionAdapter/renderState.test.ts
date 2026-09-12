@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -8,11 +8,12 @@
 import { produce } from "immer";
 import * as _ from "lodash-es";
 
-import { PanelSettings } from "@lichtblick/suite";
+import { PanelSettings, VariableValue } from "@lichtblick/suite";
+import { EMPTY_GLOBAL_VARIABLES } from "@lichtblick/suite-base/hooks/useGlobalVariables";
 import { RosTime } from "@lichtblick/suite-base/panels/ThreeDeeRender/ros";
 import { PlayerPresence } from "@lichtblick/suite-base/players/types";
-import BasicBuilder from "@lichtblick/suite-base/testing/builders/BasicBuilder";
 import PlayerBuilder from "@lichtblick/suite-base/testing/builders/PlayerBuilder";
+import { BasicBuilder } from "@lichtblick/test-builders";
 
 import { BuilderRenderStateInput, initRenderStateBuilder } from "./renderState";
 
@@ -57,13 +58,14 @@ function makeInitialState(): BuilderRenderStateInput {
       },
     ],
     colorScheme: undefined,
-    globalVariables: {},
+    globalVariables: EMPTY_GLOBAL_VARIABLES,
     hoverValue: undefined,
     sharedPanelState: {},
     sortedTopics: [
       { name: "test", schemaName: "schema" },
       { name: "test2", schemaName: "schema2" },
     ],
+    sortedServices: ["service1", "service2"],
     subscriptions: [{ topic: "test" }, { topic: "test", convertTo: "otherSchema", preload: true }],
     messageConverters: [
       {
@@ -81,6 +83,7 @@ function makeInitialState(): BuilderRenderStateInput {
         },
       },
     ],
+    forceConversion: new Set(),
   };
 }
 const setup = (inputOverride: Partial<BuilderRenderStateInput> = {}) => {
@@ -89,7 +92,7 @@ const setup = (inputOverride: Partial<BuilderRenderStateInput> = {}) => {
     appSettings: undefined,
     colorScheme: undefined,
     currentFrame: undefined,
-    globalVariables: {},
+    globalVariables: EMPTY_GLOBAL_VARIABLES,
     hoverValue: undefined,
     playerState: undefined,
     sharedPanelState: {},
@@ -97,6 +100,7 @@ const setup = (inputOverride: Partial<BuilderRenderStateInput> = {}) => {
     sortedTopics: [],
     subscriptions: [],
     ...inputOverride,
+    forceConversion: new Set(),
   };
 
   return {
@@ -118,7 +122,7 @@ describe("renderState", () => {
   it("should include convertibleTo when there are message converters", () => {
     const { buildRenderState, input } = setup();
     _.merge(input, {
-      globalVariables: {},
+      globalVariables: EMPTY_GLOBAL_VARIABLES,
       messageConverters: [
         {
           fromSchemaName: "schema",
@@ -132,7 +136,7 @@ describe("renderState", () => {
     const state = buildRenderState(input);
 
     expect(state).toEqual({
-      topics: [{ name: "test", schemaName: "schema", datatype: "schema", convertibleTo: ["more"] }],
+      topics: [{ name: "test", schemaName: "schema", convertibleTo: ["more"] }],
     });
   });
 
@@ -148,13 +152,28 @@ describe("renderState", () => {
     const state = buildRenderState(input);
 
     expect(state).toEqual({
-      topics: [{ name: "test", schemaName: "schema", datatype: "schema" }],
+      topics: [{ name: "test", schemaName: "schema" }],
+    });
+  });
+
+  it("should provide services", () => {
+    const { buildRenderState, input } = setup();
+    _.merge(input, {
+      sortedServices: ["service1", "/namespace/service2"],
+      watchedFields: new Set(["services"]),
+    });
+    const state = buildRenderState(input);
+
+    expect(state).toEqual({
+      services: ["service1", "/namespace/service2"],
     });
   });
 
   it("should provide stable time values", () => {
     const buildRenderState = initRenderStateBuilder();
-    const playerState = PlayerBuilder.playerState();
+    const playerState = PlayerBuilder.playerState({
+      activeData: PlayerBuilder.activeData(),
+    });
 
     playerState.activeData!.currentTime = { sec: 33, nsec: 1 };
     playerState.activeData!.startTime = { sec: 1, nsec: 1 };
@@ -166,7 +185,7 @@ describe("renderState", () => {
       currentFrame: [],
       playerState,
       colorScheme: undefined,
-      globalVariables: {},
+      globalVariables: EMPTY_GLOBAL_VARIABLES,
       hoverValue: {
         value: 2.5,
         componentId: "test",
@@ -175,6 +194,8 @@ describe("renderState", () => {
       sharedPanelState: {},
       sortedTopics: [{ name: "test", schemaName: "schema" }],
       subscriptions: [{ topic: "test", convertTo: "schema" }],
+      sortedServices: [],
+      forceConversion: new Set(),
     };
     const firstRenderState = buildRenderState(initialState);
     expect(firstRenderState).toEqual({
@@ -194,7 +215,7 @@ describe("renderState", () => {
       endTime: { sec: 100, nsec: 1 },
       startTime: { sec: 1, nsec: 1 },
       previewTime: 3.500000001,
-      topics: [{ datatype: "schema", name: "test", schemaName: "schema" }],
+      topics: [{ name: "test", schemaName: "schema" }],
     });
   });
 
@@ -214,16 +235,17 @@ describe("renderState", () => {
         },
       ],
       colorScheme: undefined,
-      globalVariables: {},
+      globalVariables: EMPTY_GLOBAL_VARIABLES,
       hoverValue: undefined,
       sharedPanelState: {},
       sortedTopics: [{ name: "test", schemaName: "schema" }],
       subscriptions: [{ topic: "test", convertTo: "schema" }],
       messageConverters: [],
+      forceConversion: new Set(),
     });
 
     expect(state).toEqual({
-      topics: [{ name: "test", schemaName: "schema", datatype: "schema" }],
+      topics: [{ name: "test", schemaName: "schema" }],
       currentFrame: [
         {
           topic: "test",
@@ -259,7 +281,7 @@ describe("renderState", () => {
         },
       ],
       colorScheme: undefined,
-      globalVariables: {},
+      globalVariables: EMPTY_GLOBAL_VARIABLES,
       hoverValue: undefined,
       sharedPanelState: {},
       sortedTopics: [
@@ -268,12 +290,13 @@ describe("renderState", () => {
       ],
       subscriptions: [{ topic: "test", convertTo: "schema" }],
       messageConverters: [],
+      forceConversion: new Set(),
     });
 
     expect(state).toEqual({
       topics: [
-        { name: "another", schemaName: "schema", datatype: "schema" },
-        { name: "test", schemaName: "schema", datatype: "schema" },
+        { name: "another", schemaName: "schema" },
+        { name: "test", schemaName: "schema" },
       ],
       currentFrame: [
         {
@@ -320,7 +343,7 @@ describe("renderState", () => {
       appSettings: undefined,
       currentFrame: [],
       colorScheme: undefined,
-      globalVariables: {},
+      globalVariables: EMPTY_GLOBAL_VARIABLES,
       hoverValue: undefined,
       sharedPanelState: {},
       sortedTopics: [
@@ -332,12 +355,13 @@ describe("renderState", () => {
         { topic: "test2", preload: true },
       ],
       messageConverters: [],
+      forceConversion: new Set(),
     });
 
     expect(state).toEqual({
       topics: [
-        { name: "test1", schemaName: "schema", datatype: "schema" },
-        { name: "test2", schemaName: "schema", datatype: "schema" },
+        { name: "test1", schemaName: "schema" },
+        { name: "test2", schemaName: "schema" },
       ],
       allFrames: [
         makeBlock("test1", { nsec: 0, sec: 1 }),
@@ -394,7 +418,7 @@ describe("renderState", () => {
         },
       ],
       colorScheme: undefined,
-      globalVariables: {},
+      globalVariables: EMPTY_GLOBAL_VARIABLES,
       hoverValue: undefined,
       sharedPanelState: {},
       sortedTopics: [{ name: "test", schemaName: "schema" }],
@@ -411,12 +435,11 @@ describe("renderState", () => {
           },
         },
       ],
+      forceConversion: new Set(),
     });
 
     expect(state).toEqual({
-      topics: [
-        { name: "test", schemaName: "schema", datatype: "schema", convertibleTo: ["otherSchema"] },
-      ],
+      topics: [{ name: "test", schemaName: "schema", convertibleTo: ["otherSchema"] }],
       currentFrame: [
         {
           topic: "test",
@@ -486,7 +509,7 @@ describe("renderState", () => {
         },
       ],
       colorScheme: undefined,
-      globalVariables: {},
+      globalVariables: EMPTY_GLOBAL_VARIABLES,
       hoverValue: undefined,
       sharedPanelState: {},
       sortedTopics: [
@@ -506,6 +529,7 @@ describe("renderState", () => {
           converter: converter2,
         },
       ],
+      forceConversion: new Set(),
     });
 
     expect(state).toMatchObject({
@@ -540,6 +564,10 @@ describe("renderState", () => {
         message: "raw-message",
         schemaName: "srcschema",
         topic: "another",
+      }),
+      {},
+      expect.objectContaining({
+        emitAlert: expect.any(Function),
       }),
     );
     expect(converter2).not.toHaveBeenCalled();
@@ -589,7 +617,7 @@ describe("renderState", () => {
         },
       ],
       colorScheme: undefined,
-      globalVariables: {},
+      globalVariables: EMPTY_GLOBAL_VARIABLES,
       hoverValue: undefined,
       sharedPanelState: {},
       sortedTopics: [{ name: "test", schemaName: "schema" }],
@@ -614,6 +642,7 @@ describe("renderState", () => {
           },
         },
       ],
+      forceConversion: new Set(),
     });
 
     expect(state).toEqual({
@@ -621,7 +650,6 @@ describe("renderState", () => {
         {
           name: "test",
           schemaName: "schema",
-          datatype: "schema",
           convertibleTo: ["otherSchema", "anotherSchema"],
         },
       ],
@@ -744,7 +772,7 @@ describe("renderState", () => {
         },
       ],
       colorScheme: undefined,
-      globalVariables: {},
+      globalVariables: EMPTY_GLOBAL_VARIABLES,
       hoverValue: undefined,
       sharedPanelState: {},
       sortedTopics: [{ name: "test", schemaName: "schema" }],
@@ -759,12 +787,11 @@ describe("renderState", () => {
           converter: () => undefined,
         },
       ],
+      forceConversion: new Set(),
     });
 
     expect(state).toEqual({
-      topics: [
-        { name: "test", schemaName: "schema", datatype: "schema", convertibleTo: ["otherSchema"] },
-      ],
+      topics: [{ name: "test", schemaName: "schema", convertibleTo: ["otherSchema"] }],
       currentFrame: [
         {
           topic: "test",
@@ -781,6 +808,76 @@ describe("renderState", () => {
           schemaName: "schema",
           sizeInBytes: 1,
           topic: "test",
+        },
+      ],
+    });
+  });
+
+  it("should force conversion of the latest message when requested", () => {
+    const buildRenderState = initRenderStateBuilder();
+    const converter = jest.fn((msg, event) => ({
+      converted: event.topicConfig?.flag ?? "default",
+      original: msg,
+    }));
+
+    const baseInput: BuilderRenderStateInput = {
+      watchedFields: new Set(["currentFrame"]),
+      playerState: undefined,
+      appSettings: undefined,
+      currentFrame: [
+        {
+          topic: "test",
+          schemaName: "schema",
+          receiveTime: { sec: 0, nsec: 0 },
+          sizeInBytes: 1,
+          message: { from: "currentFrame" },
+        },
+      ],
+      colorScheme: undefined,
+      globalVariables: {},
+      hoverValue: undefined,
+      sharedPanelState: {},
+      sortedTopics: [{ name: "test", schemaName: "schema" }],
+      subscriptions: [{ topic: "test", convertTo: "converted", preload: true }],
+      messageConverters: [
+        {
+          fromSchemaName: "schema",
+          toSchemaName: "converted",
+          converter,
+        },
+      ],
+      forceConversion: new Set(),
+      config: { topics: { test: { flag: "initial" } } },
+    };
+
+    const state1 = buildRenderState(baseInput);
+    expect(converter).toHaveBeenCalledTimes(1);
+    expect(state1).toMatchObject({
+      currentFrame: [
+        {
+          topic: "test",
+          schemaName: "converted",
+          message: { converted: "initial" },
+        },
+      ],
+    });
+
+    converter.mockClear();
+
+    const state2 = buildRenderState({
+      ...baseInput,
+      currentFrame: undefined,
+      forceConversion: new Set(["test"]),
+      config: { topics: { test: { flag: "forced" } } },
+    });
+
+    expect(converter).toHaveBeenCalledTimes(1);
+    expect(state2).toMatchObject({
+      currentFrame: [
+        {
+          topic: "test",
+          schemaName: "converted",
+          message: { converted: "forced" },
         },
       ],
     });
@@ -836,6 +933,155 @@ describe("renderState", () => {
     });
   });
 
+  it("should run converter when globalvariables changed", () => {
+    const buildRenderState = initRenderStateBuilder();
+    const converter = jest.fn().mockImplementation(() => 1);
+    const initialState: BuilderRenderStateInput = {
+      watchedFields: new Set(["topics", "currentFrame"]),
+      playerState: undefined,
+      appSettings: undefined,
+      currentFrame: [
+        {
+          topic: "test",
+          schemaName: "schema",
+          receiveTime: { sec: 0, nsec: 0 },
+          sizeInBytes: 1,
+          message: { from: "currentFrame" },
+        },
+      ],
+      colorScheme: undefined,
+      globalVariables: { var1: "value1" },
+      hoverValue: undefined,
+      sharedPanelState: {},
+      sortedTopics: [{ name: "test", schemaName: "schema" }],
+      subscriptions: [{ topic: "test", convertTo: "otherSchema" }],
+      messageConverters: [
+        {
+          fromSchemaName: "schema",
+          toSchemaName: "otherSchema",
+          converter,
+        },
+      ],
+      forceConversion: new Set(),
+    };
+
+    const state1 = buildRenderState(initialState);
+
+    expect(state1).toMatchObject({
+      currentFrame: [
+        {
+          topic: "test",
+          schemaName: "otherSchema",
+          message: 1,
+        },
+      ],
+    });
+    expect(converter).toHaveBeenCalledTimes(1);
+    expect(converter).toHaveBeenCalledWith(
+      { from: "currentFrame" },
+      expect.objectContaining({ topic: "test" }),
+      { var1: "value1" },
+      expect.objectContaining({
+        emitAlert: expect.any(Function),
+      }),
+    );
+
+    converter.mockClear();
+
+    // Same currentFrame, but different globalVariables - should re-run converter
+    const state2 = buildRenderState({
+      ...initialState,
+      globalVariables: { var1: "value2" },
+    });
+
+    expect(state2).toMatchObject({
+      currentFrame: [
+        {
+          topic: "test",
+          schemaName: "otherSchema",
+          message: 1,
+        },
+      ],
+    });
+    expect(converter).toHaveBeenCalledTimes(1);
+    expect(converter).toHaveBeenCalledWith(
+      { from: "currentFrame" },
+      expect.objectContaining({ topic: "test" }),
+      { var1: "value2" },
+      expect.objectContaining({
+        emitAlert: expect.any(Function),
+      }),
+    );
+  });
+
+  it("should pass undefined to converter when no global variables are set", () => {
+    const buildRenderState = initRenderStateBuilder();
+    const converter = jest.fn().mockImplementation(() => 1);
+
+    buildRenderState({
+      watchedFields: new Set(["currentFrame"]),
+      playerState: undefined,
+      appSettings: undefined,
+      currentFrame: [
+        {
+          topic: "test",
+          schemaName: "schema",
+          receiveTime: { sec: 0, nsec: 0 },
+          sizeInBytes: 1,
+          message: {},
+        },
+      ],
+      colorScheme: undefined,
+      globalVariables: {},
+      hoverValue: undefined,
+      sharedPanelState: {},
+      sortedTopics: [{ name: "test", schemaName: "schema" }],
+      subscriptions: [{ topic: "test", convertTo: "otherSchema" }],
+      messageConverters: [
+        {
+          fromSchemaName: "schema",
+          toSchemaName: "otherSchema",
+          converter,
+        },
+      ],
+      forceConversion: new Set(),
+    });
+
+    expect(converter).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ topic: "test" }),
+      {},
+      expect.objectContaining({
+        emitAlert: expect.any(Function),
+      }),
+    );
+  });
+
+  it("should update renderState.variables when variables watch field is set", () => {
+    const buildRenderState = initRenderStateBuilder();
+    const state = buildRenderState({
+      watchedFields: new Set(["variables"]),
+      playerState: undefined,
+      appSettings: undefined,
+      currentFrame: undefined,
+      colorScheme: undefined,
+      globalVariables: { var1: "value1", var2: 42 },
+      hoverValue: undefined,
+      sharedPanelState: {},
+      sortedTopics: [],
+      subscriptions: [],
+      messageConverters: [],
+      forceConversion: new Set(),
+    });
+
+    expect(state).toEqual({
+      variables: new Map<string, VariableValue>([
+        ["var1", "value1"],
+        ["var2", 42],
+      ]),
+    });
+  });
+
   it("should deliver new allframes when a second converter from the same topic is enabled", () => {
     const buildRenderState = initRenderStateBuilder();
     const initialState = makeInitialState();
@@ -846,13 +1092,11 @@ describe("renderState", () => {
         {
           name: "test",
           schemaName: "schema",
-          datatype: "schema",
           convertibleTo: ["otherSchema", "anotherSchema"],
         },
         {
           name: "test2",
           schemaName: "schema2",
-          datatype: "schema2",
         },
       ],
       currentFrame: expect.any(Array),
@@ -944,10 +1188,11 @@ describe("renderState", () => {
           },
         ],
         colorScheme: undefined,
-        globalVariables: {},
+        globalVariables: EMPTY_GLOBAL_VARIABLES,
         hoverValue: undefined,
         sharedPanelState: {},
         ...stableConversionInputs,
+        forceConversion: new Set(),
       });
 
       expect(state).toEqual({
@@ -971,10 +1216,11 @@ describe("renderState", () => {
         appSettings: undefined,
         currentFrame: undefined,
         colorScheme: undefined,
-        globalVariables: {},
+        globalVariables: EMPTY_GLOBAL_VARIABLES,
         hoverValue: undefined,
         sharedPanelState: {},
         ...stableConversionInputs,
+        forceConversion: new Set(),
       });
 
       expect(state).toEqual({
@@ -990,10 +1236,11 @@ describe("renderState", () => {
         appSettings: undefined,
         currentFrame: undefined,
         colorScheme: undefined,
-        globalVariables: {},
+        globalVariables: EMPTY_GLOBAL_VARIABLES,
         hoverValue: undefined,
         sharedPanelState: {},
         ...stableConversionInputs,
+        forceConversion: new Set(),
       });
 
       expect(state).toEqual(undefined);
@@ -1017,7 +1264,7 @@ describe("renderState", () => {
         },
       ],
       colorScheme: undefined,
-      globalVariables: {},
+      globalVariables: EMPTY_GLOBAL_VARIABLES,
       hoverValue: undefined,
       sharedPanelState: undefined,
       sortedTopics: [{ name: "myTopic", schemaName: "from.Schema" }],
@@ -1051,6 +1298,7 @@ describe("renderState", () => {
         },
       ],
       config: { topics: { myTopic: { test: false } } },
+      forceConversion: new Set(),
     });
 
     expect(checkRenderedConfig).toHaveBeenCalled();

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -28,6 +28,8 @@ export type PrimitiveType =
   | "float64"
   | "string";
 
+export type OperatorType = "==" | "!=" | "<=" | ">=" | "<" | ">";
+
 export type MessagePathFilter = {
   type: "filter";
   path: string[];
@@ -35,26 +37,28 @@ export type MessagePathFilter = {
   nameLoc: number;
   valueLoc: number;
   repr: string; // the original string representation of the filter
+  operator: OperatorType;
+};
+
+export type MessagePathName = {
+  type: "name";
+  /** Referenced field name */
+  name: string;
+  /**
+   * Original spelling of the field name in the input message path (for accurate reproduction in
+   * autocomplete and string length)
+   */
+  repr: string;
+};
+
+type MessagePathSlice = {
+  type: "slice";
+  start: number | { variableName: string; startLoc: number };
+  end: number | { variableName: string; startLoc: number };
 };
 
 // A parsed version of paths.
-export type MessagePathPart =
-  | {
-      type: "name";
-      /** Referenced field name */
-      name: string;
-      /**
-       * Original spelling of the field name in the input message path (for accurate reproduction in
-       * autocomplete and string length)
-       */
-      repr: string;
-    }
-  | {
-      type: "slice";
-      start: number | { variableName: string; startLoc: number };
-      end: number | { variableName: string; startLoc: number };
-    }
-  | MessagePathFilter;
+export type MessagePathPart = MessagePathName | MessagePathSlice | MessagePathFilter;
 
 export type MessagePath = {
   /** Referenced topic name */

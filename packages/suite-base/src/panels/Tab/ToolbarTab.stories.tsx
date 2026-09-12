@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -14,7 +14,7 @@
 //   found at http://www.apache.org/licenses/LICENSE-2.0
 //   You may not use this file except in compliance with the License.
 
-import { StoryObj } from "@storybook/react";
+import { StoryObj } from "@storybook/react-webpack5";
 import * as _ from "lodash-es";
 import React, { ReactNode } from "react";
 
@@ -37,6 +37,7 @@ const baseProps = {
   tabTitle: "Tab Title",
 };
 
+// eslint-disable-next-line @typescript-eslint/no-shadow
 const Container = React.forwardRef<HTMLDivElement, { children?: ReactNode }>(function Container(
   { children }: any,
   ref,

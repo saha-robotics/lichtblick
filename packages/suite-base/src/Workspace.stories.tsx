@@ -1,11 +1,11 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { StoryObj } from "@storybook/react";
+import { StoryObj } from "@storybook/react-webpack5";
 import { fireEvent, screen, waitFor } from "@storybook/testing-library";
 import { useEffect, useState } from "react";
 
@@ -15,13 +15,17 @@ import { usePanelContext } from "@lichtblick/suite-base/components/PanelContext"
 import { DraggedMessagePath } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
 import PanelToolbar from "@lichtblick/suite-base/components/PanelToolbar";
 import { LayoutData } from "@lichtblick/suite-base/context/CurrentLayoutContext";
+import LayoutStorageContext from "@lichtblick/suite-base/context/LayoutStorageContext";
 import PanelCatalogContext, {
   PanelCatalog,
   PanelInfo,
 } from "@lichtblick/suite-base/context/PanelCatalogContext";
 import Tab from "@lichtblick/suite-base/panels/Tab";
+import AppParametersProvider from "@lichtblick/suite-base/providers/AppParametersProvider";
 import MockCurrentLayoutProvider from "@lichtblick/suite-base/providers/CurrentLayoutProvider/MockCurrentLayoutProvider";
 import EventsProvider from "@lichtblick/suite-base/providers/EventsProvider";
+import LayoutManagerProvider from "@lichtblick/suite-base/providers/LayoutManagerProvider";
+import MockLayoutStorage from "@lichtblick/suite-base/services/MockLayoutStorage";
 import PanelSetup, { Fixture } from "@lichtblick/suite-base/stories/PanelSetup";
 
 import Workspace from "./Workspace";
@@ -123,12 +127,16 @@ export const Basic: StoryObj<{ initialLayoutState: Partial<LayoutData> }> = {
         ],
       ]),
     };
+    const layoutStorage = new MockLayoutStorage("storybook");
     const providers = [
       /* eslint-disable react/jsx-key */
       <PanelSetup fixture={fixture}>{undefined}</PanelSetup>,
       <EventsProvider />,
       <PanelCatalogContext.Provider value={new MockPanelCatalog()} />,
       <MockCurrentLayoutProvider initialState={args.initialLayoutState} />,
+      <LayoutStorageContext.Provider value={layoutStorage} />,
+      <LayoutManagerProvider />,
+      <AppParametersProvider />,
       /* eslint-enable react/jsx-key */
     ];
     return (

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -20,6 +20,7 @@ import { StoreApi, useStore } from "zustand";
 import { useGuaranteedContext } from "@lichtblick/hooks";
 import { Immutable } from "@lichtblick/suite";
 import { AppSetting } from "@lichtblick/suite-base/AppSetting";
+import { AlertsContext } from "@lichtblick/suite-base/context/AlertsContext";
 import CurrentLayoutContext, {
   LayoutState,
 } from "@lichtblick/suite-base/context/CurrentLayoutContext";
@@ -27,7 +28,7 @@ import { useAppConfigurationValue } from "@lichtblick/suite-base/hooks/useAppCon
 import { GlobalVariables } from "@lichtblick/suite-base/hooks/useGlobalVariables";
 import {
   Player,
-  PlayerProblem,
+  PlayerAlert,
   PlayerState,
   SubscribePayload,
 } from "@lichtblick/suite-base/players/types";
@@ -100,6 +101,11 @@ const selectSubscriptions = (state: MessagePipelineInternalState) => state.publi
 
 export function MessagePipelineProvider({ children, player }: ProviderProps): React.ReactElement {
   const promisesToWaitForRef = useRef<FramePromise[]>([]);
+  const previousPlayerRef = useRef<Player | undefined>();
+  const alertsStore = useContext(AlertsContext);
+  const clearAlerts = useCallback(() => {
+    alertsStore?.getState().actions.clearAlerts();
+  }, [alertsStore]);
 
   // We make a new store when the player changes. This throws away any state from the previous store
   // and re-creates the pipeline functions and references. We make a new store to avoid holding onto
@@ -179,6 +185,14 @@ export function MessagePipelineProvider({ children, player }: ProviderProps): Re
     };
   }, [currentLayoutContext, player]);
 
+  // Session alerts from message converters should not carry over when switching to a new player.
+  useEffect(() => {
+    if (previousPlayerRef.current != undefined && previousPlayerRef.current !== player) {
+      clearAlerts();
+    }
+    previousPlayerRef.current = player;
+  }, [player, clearAlerts]);
+
   useEffect(() => {
     const dispatch = store.getState().dispatch;
     if (!player) {
@@ -196,6 +210,7 @@ export function MessagePipelineProvider({ children, player }: ProviderProps): Re
       msPerFrameRef,
       promisesToWaitForRef,
       store,
+      clearAlerts,
     });
     player.setListener(listener);
     return () => {
@@ -207,20 +222,20 @@ export function MessagePipelineProvider({ children, player }: ProviderProps): Re
         renderDone: undefined,
       });
     };
-  }, [player, store]);
+  }, [player, store, clearAlerts]);
 
   return <ContextInternal.Provider value={store}>{children}</ContextInternal.Provider>;
 }
 
-// Given a PlayerState and a PlayerProblem array, add the problems to any existing player problems
-function concatProblems(origState: PlayerState, problems: PlayerProblem[]): PlayerState {
-  if (problems.length === 0) {
+// Given a PlayerState and a PlayerAlert array, add the alerts to any existing player alerts
+function concatAlerts(origState: PlayerState, alerts: PlayerAlert[]): PlayerState {
+  if (alerts.length === 0) {
     return origState;
   }
 
   return {
     ...origState,
-    problems: problems.concat(origState.problems ?? []),
+    alerts: alerts.concat(origState.alerts ?? []),
   };
 }
 
@@ -251,11 +266,12 @@ function createPlayerListener(args: {
   msPerFrameRef: React.MutableRefObject<number>;
   promisesToWaitForRef: React.MutableRefObject<FramePromise[]>;
   store: StoreApi<MessagePipelineInternalState>;
+  clearAlerts: () => void;
 }): {
   listener: (state: PlayerState) => Promise<void>;
   cleanupListener: () => void;
 } {
-  const { msPerFrameRef, promisesToWaitForRef, store } = args;
+  const { msPerFrameRef, promisesToWaitForRef, store, clearAlerts } = args;
   const updateState = store.getState().dispatch;
   const messageOrderTracker = new MessageOrderTracker();
   let closed = false;
@@ -271,8 +287,8 @@ function createPlayerListener(args: {
     }
 
     // check for any out-of-order or out-of-sync messages
-    const problems = messageOrderTracker.update(listenerPlayerState);
-    const newPlayerState = concatProblems(listenerPlayerState, problems);
+    const alerts = messageOrderTracker.update(listenerPlayerState);
+    const newPlayerState = concatAlerts(listenerPlayerState, alerts);
 
     const promise = new Promise<void>((resolve) => {
       resolveFn = () => {
@@ -318,6 +334,7 @@ function createPlayerListener(args: {
     }
 
     if (prevPlayerId != undefined && listenerPlayerState.playerId !== prevPlayerId) {
+      clearAlerts();
       store.getState().reset();
     }
     prevPlayerId = listenerPlayerState.playerId;

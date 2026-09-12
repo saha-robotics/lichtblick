@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -8,7 +8,6 @@
 import { unwrap } from "@lichtblick/den/monads";
 import { parseMessagePath } from "@lichtblick/message-path";
 import {
-  MessageBlock,
   PlayerPresence,
   PlayerState,
   PlayerStateActiveData,
@@ -16,7 +15,7 @@ import {
 
 import { SeriesConfigKey, SeriesItem } from "./IDatasetsBuilder";
 import { IndexDatasetsBuilder } from "./IndexDatasetsBuilder";
-import { PlotPath } from "../config";
+import { PlotPath } from "../utils/config";
 
 function buildSeriesItems(
   paths: (Partial<PlotPath> & { key?: string; value: string })[],
@@ -40,10 +39,7 @@ function buildSeriesItems(
   });
 }
 
-function buildPlayerState(
-  activeDataOverride?: Partial<PlayerStateActiveData>,
-  blocks?: readonly (MessageBlock | undefined)[],
-): PlayerState {
+function buildPlayerState(activeDataOverride?: Partial<PlayerStateActiveData>): PlayerState {
   return {
     activeData: {
       messages: [],
@@ -65,15 +61,59 @@ function buildPlayerState(
     playerId: "1",
     progress: {
       fullyLoadedFractionRanges: [],
-      messageCache: {
-        blocks: blocks ?? [],
-        startTime: { sec: 0, nsec: 0 },
-      },
     },
   };
 }
 
 describe("IndexDatasetsBuilder", () => {
+  it("should render a gap by mapping a null value to NaN", async () => {
+    const builder = new IndexDatasetsBuilder();
+
+    builder.setSeries(
+      buildSeriesItems([
+        {
+          enabled: true,
+          timestampMethod: "receiveTime",
+          value: "/bar.val[:]",
+        },
+      ]),
+    );
+
+    builder.handlePlayerState(
+      buildPlayerState({
+        messages: [
+          {
+            topic: "/bar",
+            schemaName: "foo",
+            receiveTime: { sec: 0, nsec: 0 },
+            sizeInBytes: 0,
+            message: {
+              val: [1, null, 3],
+            },
+          },
+        ],
+      }),
+    );
+
+    const result = await builder.getViewportDatasets();
+
+    expect(result).toEqual({
+      pathsWithMismatchedDataLengths: new Set(),
+      datasetsByConfigIndex: [
+        expect.objectContaining({
+          data: [
+            { x: 0, y: 1, value: 1, receiveTime: { sec: 0, nsec: 0 } },
+            { x: 1, y: NaN, value: null, receiveTime: { sec: 0, nsec: 0 } },
+            { x: 2, y: 3, value: 3, receiveTime: { sec: 0, nsec: 0 } },
+          ],
+          showLine: true,
+          pointRadius: 1.2,
+          fill: false,
+        }),
+      ],
+    });
+  });
+
   it("should produce a dataset", async () => {
     const builder = new IndexDatasetsBuilder();
 

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -18,6 +18,7 @@ function makeElectronBuilderConfig(params) {
     appId: "dev.lichtblick.suite",
     npmRebuild: false,
     asar: true,
+    files: ["**/*", "!**/node_modules/**"],
     directories: {
       app: params.appPath,
       buildResources: path.join(__dirname, "../resources"),
@@ -39,7 +40,7 @@ function makeElectronBuilderConfig(params) {
         },
         {
           target: "tar.gz",
-          arch: ["x64"],
+          arch: ["x64", "arm64"],
         },
       ],
       fileAssociations: [

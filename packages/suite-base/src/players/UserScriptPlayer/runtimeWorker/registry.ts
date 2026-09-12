@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -28,7 +28,7 @@ import {
   RegistrationOutput,
   UserScriptLog,
 } from "@lichtblick/suite-base/players/UserScriptPlayer/types";
-import { DEFAULT_STUDIO_SCRIPT_PREFIX } from "@lichtblick/suite-base/util/globalConstants";
+import { DEFAULT_STUDIO_SCRIPT_PREFIX } from "@lichtblick/suite-base/util/constants";
 
 // Each script runtime worker runs one script at a time, hence why we have one
 // global declaration of 'nodeCallback'.
@@ -109,9 +109,7 @@ export const registerScript = ({
     if (containsFuncDeclaration(args)) {
       const argsToPrint = getArgsToPrint(args);
       throw new Error(
-        `Cannot invoke log() with a function argument (registerScript) - log(${argsToPrint.join(
-          ", ",
-        )})`,
+        `Cannot invoke log() with a function argument (registerScript) - log(${argsToPrint.map((arg) => JSON.stringify(arg)).join(", ")})`,
       );
     }
     userScriptLogs.push(...args.map((value) => ({ source: "registerScript" as const, value })));
@@ -154,9 +152,7 @@ export const processMessage = ({
     if (containsFuncDeclaration(args)) {
       const argsToPrint = getArgsToPrint(args);
       throw new Error(
-        `Cannot invoke log() with a function argument (processMessage) - log(${argsToPrint.join(
-          ", ",
-        )})`,
+        `Cannot invoke log() with a function argument (processMessage) - log(${argsToPrint.map((arg) => JSON.stringify(arg)).join(", ")})`,
       );
     }
     userScriptLogs.push(...args.map((value) => ({ source: "processMessage" as const, value })));

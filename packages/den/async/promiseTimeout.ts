@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -37,7 +37,7 @@ async function promiseTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
     }, ms);
     promise
       .then(resolve, (reason: unknown) => {
-        reject(reason as Error);
+        reject(reason instanceof Error ? reason : new Error(String(reason)));
       })
       .finally(() => {
         clearTimeout(id);

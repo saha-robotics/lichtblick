@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -12,6 +12,7 @@ import {
   parseAppURLState,
 } from "@lichtblick/suite-base/util/appURLState";
 import isDesktopApp from "@lichtblick/suite-base/util/isDesktopApp";
+import { BasicBuilder } from "@lichtblick/test-builders";
 
 jest.mock("@lichtblick/suite-base/util/isDesktopApp", () => ({
   __esModule: true,
@@ -45,6 +46,36 @@ describe("app state url parser", () => {
       });
     });
 
+    it("parses multiple remote data state urls to a single string", () => {
+      const url = urlBuilder();
+      url.searchParams.append("ds", "remote-file");
+      url.searchParams.append("ds.url", "http://example1.com");
+      url.searchParams.append("ds.url", "http://example2.com");
+
+      expect(parseAppURLState(url)).toMatchObject({
+        ds: "remote-file",
+        dsParams: {
+          url: "http://example1.com,http://example2.com",
+        },
+      });
+    });
+
+    it("parses handles duplicate dsParams correctly", () => {
+      const url = urlBuilder();
+      url.searchParams.append("ds", "remote-file");
+      url.searchParams.append("ds.url", "http://example1.com");
+      url.searchParams.append("ds.test", "test1");
+      url.searchParams.append("ds.test", "test2");
+
+      expect(parseAppURLState(url)).toMatchObject({
+        ds: "remote-file",
+        dsParams: {
+          url: "http://example1.com",
+          test: "test2",
+        },
+      });
+    });
+
     it("parses data platform state urls", () => {
       const now: Time = { sec: new Date().getTime(), nsec: 0 };
       const time = toRFC3339String({ sec: now.sec + 500, nsec: 0 });
@@ -66,57 +97,229 @@ describe("app state url parser", () => {
         dsParams: { bar: "barValue", baz: "bazValue" },
       });
     });
+
+    it("parses numeric epoch timestamp (seconds with nanoseconds)", () => {
+      const url = urlBuilder();
+      const dataSourceUrl = new URL(`http://${BasicBuilder.string()}.com`);
+      url.searchParams.append("ds", "remote-file");
+      url.searchParams.append("ds.url", dataSourceUrl.href);
+      url.searchParams.append("time", "1751378709.331000000");
+
+      const parsed = parseAppURLState(url);
+
+      expect(parsed).toMatchObject({
+        ds: "remote-file",
+        time: { sec: 1751378709, nsec: 331000000 },
+        dsParams: { url: dataSourceUrl.href },
+      });
+    });
+
+    it("parses RFC3339 timestamp format", () => {
+      const url = urlBuilder();
+      const dataSourceUrl = new URL(`http://${BasicBuilder.string()}.com`);
+      url.searchParams.append("ds", "remote-file");
+      url.searchParams.append("ds.url", dataSourceUrl.href);
+      url.searchParams.append("time", "2025-07-01T14:05:09.331293771Z");
+
+      const parsed = parseAppURLState(url);
+
+      expect(parsed).toMatchObject({
+        ds: "remote-file",
+        time: { sec: 1751378709, nsec: 331293771 },
+        dsParams: { url: dataSourceUrl.href },
+      });
+    });
+
+    it("parses layoutUrl from URL", () => {
+      const url = urlBuilder();
+      url.searchParams.append("layoutUrl", "http://example.com/layout.json");
+
+      expect(parseAppURLState(url)).toMatchObject({
+        layoutUrl: "http://example.com/layout.json",
+      });
+    });
+
+    it("parses both ds and layoutUrl from URL", () => {
+      const url = urlBuilder();
+      url.searchParams.append("ds", "ros1-remote-bagfile");
+      url.searchParams.append("ds.url", "http://example.com/test.bag");
+      url.searchParams.append("layoutUrl", "http://example.com/layout.json");
+
+      expect(parseAppURLState(url)).toMatchObject({
+        ds: "ros1-remote-bagfile",
+        dsParams: {
+          url: "http://example.com/test.bag",
+        },
+        layoutUrl: "http://example.com/layout.json",
+      });
+    });
+    it("parses mcap-bundle query parameter", () => {
+      const url = urlBuilder();
+      const mcapBundleId = BasicBuilder.string();
+      url.searchParams.append("mcap-bundle", mcapBundleId);
+
+      const parsed = parseAppURLState(url);
+
+      expect(parsed).toMatchObject({
+        mcapBundleId,
+      });
+    });
+
+    it("parses mcap-bundle alongside time and other params", () => {
+      const url = urlBuilder();
+      const mcapBundleId = BasicBuilder.string();
+      url.searchParams.append("mcap-bundle", mcapBundleId);
+      url.searchParams.append("time", "2025-07-01T14:05:09.331293771Z");
+
+      const parsed = parseAppURLState(url);
+
+      expect(parsed).toMatchObject({
+        mcapBundleId,
+        time: { sec: 1751378709, nsec: 331293771 },
+      });
+    });
+
+    it("returns undefined mcapBundleId when not present", () => {
+      const url = urlBuilder();
+      url.searchParams.append("ds", "remote-file");
+      url.searchParams.append("ds.url", `http://${BasicBuilder.string()}.com/file.mcap`);
+
+      const parsed = parseAppURLState(url);
+
+      expect(parsed?.mcapBundleId).toBeUndefined();
+    });
   });
 });
 
-describe("app state encoding", () => {
-  const baseURL = () => new URL("http://example.com");
+describe("updateAppURLState", () => {
+  const baseURL = new URL(`http://${BasicBuilder.string()}.com`);
 
   it("encodes rosbag urls", () => {
-    expect(
-      updateAppURLState(baseURL(), {
-        time: undefined,
-        ds: "ros1-remote-bagfile",
-        dsParams: {
-          url: "http://foxglove.dev/test.bag",
-        },
-      }).href,
-    ).toEqual(
-      "http://example.com/?ds=ros1-remote-bagfile&ds.url=http%3A%2F%2Ffoxglove.dev%2Ftest.bag",
+    const url = `${baseURL.origin}/${BasicBuilder.string()}.bag`;
+    const urlState: AppURLState = {
+      time: undefined,
+      ds: "ros1-remote-bagfile",
+      dsParams: { url },
+    };
+
+    const result = updateAppURLState(baseURL, urlState);
+
+    expect(decodeURIComponent(result.href)).toEqual(
+      `${baseURL.origin}/?ds=${urlState.ds}&ds.url=${url}`,
     );
   });
 
+  it("should encode multiple remote files urls", () => {
+    const urls = [
+      `${baseURL.origin}/${BasicBuilder.string()}.mcap`,
+      `${baseURL.origin}/${BasicBuilder.string()}.mcap`,
+    ];
+    const urlState: AppURLState = {
+      time: undefined,
+      ds: "remote-file",
+      dsParamsArray: { urls },
+    };
+
+    const result = updateAppURLState(baseURL, urlState);
+
+    expect(decodeURIComponent(result.href)).toEqual(
+      `${baseURL.origin}/?ds=${urlState.ds}&ds.url=${urls[0]}&ds.url=${urls[1]}`,
+    );
+  });
+
+  it("appends 'ds.' + key when keyMap entry doesn't have a substitute for that key", () => {
+    const key = BasicBuilder.string();
+    const paramArray: string[] = BasicBuilder.strings({ count: 2 });
+    const urlState: AppURLState = {
+      time: undefined,
+      ds: "remote-file",
+      dsParamsArray: { [key]: paramArray },
+    };
+
+    const result = updateAppURLState(baseURL, urlState);
+
+    expect(result.href).toEqual(
+      `${baseURL.origin}/?ds=${urlState.ds}&ds.${key}=${paramArray[0]}&ds.${key}=${paramArray[1]}`,
+    );
+  });
+
+  it("encodes layoutUrl", () => {
+    const urlState: AppURLState = {
+      time: undefined,
+      layoutUrl: "http://example.com/layout.json",
+    };
+
+    const result = updateAppURLState(baseURL, urlState);
+
+    expect(result.searchParams.get("layoutUrl")).toBe("http://example.com/layout.json");
+  });
+
+  it("encodes both ds and layoutUrl", () => {
+    const testUrl = `${baseURL.origin}/${BasicBuilder.string()}.bag`;
+    const urlState: AppURLState = {
+      time: undefined,
+      ds: "ros1-remote-bagfile",
+      dsParams: {
+        url: testUrl,
+      },
+      layoutUrl: "http://example.com/layout.json",
+    };
+
+    const result = updateAppURLState(baseURL, urlState);
+
+    expect(result.searchParams.get("ds")).toBe("ros1-remote-bagfile");
+    expect(result.searchParams.get("layoutUrl")).toBe("http://example.com/layout.json");
+    expect(result.searchParams.get("ds.url")).toBe(testUrl);
+  });
+
+  it("removes layoutUrl when set to undefined", () => {
+    const urlWithLayout = new URL(baseURL.href);
+    urlWithLayout.searchParams.set("layoutUrl", "http://example.com/layout.json");
+    const updated = updateAppURLState(urlWithLayout, { layoutUrl: undefined });
+    expect(updated.searchParams.has("layoutUrl")).toBe(false);
+  });
+
   describe("url states", () => {
-    const eventId = "dummyEventId";
+    const eventId = BasicBuilder.string();
     const time = undefined;
     it.each<AppURLState>([
       {
         time,
         ds: "ros1",
-        dsParams: { url: "http://example.com:11311/test.bag", eventId },
+        dsParams: {
+          url: `${baseURL.origin}:${baseURL.port}/${BasicBuilder.string()}.bag`,
+          eventId,
+        },
       },
       {
         time,
         ds: "ros2",
-        dsParams: { url: "http://example.com:11311/test.bag", eventId },
+        dsParams: {
+          url: `${baseURL.origin}:${baseURL.port}/${BasicBuilder.string()}.bag`,
+          eventId,
+        },
       },
       {
         time,
         ds: "ros1-remote-bagfile",
-        dsParams: { url: "http://example.com/test.bag", eventId },
+        dsParams: { url: `${baseURL.origin}/${BasicBuilder.string()}.bag`, eventId },
       },
       {
         time,
         ds: "rosbridge-websocket",
-        dsParams: { url: "ws://foxglove.dev:9090/test.bag", eventId },
+        dsParams: {
+          url: `ws://${baseURL.host}:${baseURL.port}/${BasicBuilder.string()}.bag`,
+          eventId,
+        },
       },
     ])("encodes url state", (state) => {
       const url = state.dsParams?.url;
-      const encodededURL = updateAppURLState(baseURL(), state).href;
-      expect(encodededURL).toEqual(
-        `http://example.com/?ds=${state.ds}&ds.eventId=${eventId}&ds.url=${encodeURIComponent(
-          url ?? "",
-        )}`,
+      const encodedURLFile = encodeURIComponent(url ?? "");
+
+      const result = updateAppURLState(baseURL, state);
+
+      expect(result.href).toEqual(
+        `${baseURL.origin}/?ds=${state.ds}&ds.eventId=${eventId}&ds.url=${encodedURLFile}`,
       );
     });
   });

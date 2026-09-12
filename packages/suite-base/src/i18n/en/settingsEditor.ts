@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -9,6 +9,9 @@ export const settingsEditor = {
   clearSearch: "Clear search",
   filterList: "Filter list",
   filterListHelp: "Filter list by visibility",
+  filterListText: "Filter by text",
+  filterListTextHelp: "Filter list by text, including nested items",
+  filterListTextPlaceholder: "Type to filter…",
   general: "General",
   hideAll: "Hide All",
   labels: "Labels",

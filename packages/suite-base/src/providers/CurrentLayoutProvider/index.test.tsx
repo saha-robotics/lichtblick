@@ -1,13 +1,14 @@
 /** @jest-environment jsdom */
 
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
+
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import { act, renderHook } from "@testing-library/react";
-import { SnackbarProvider } from "notistack";
+import { SnackbarProvider, useSnackbar } from "notistack";
 import { useEffect } from "react";
 
 import { Condvar } from "@lichtblick/den/async";
@@ -24,9 +25,22 @@ import {
   UserProfileStorage,
   UserProfileStorageContext,
 } from "@lichtblick/suite-base/context/UserProfileStorageContext";
+import AppParametersProvider from "@lichtblick/suite-base/providers/AppParametersProvider";
 import CurrentLayoutProvider from "@lichtblick/suite-base/providers/CurrentLayoutProvider";
-import { MAX_SUPPORTED_LAYOUT_VERSION } from "@lichtblick/suite-base/providers/CurrentLayoutProvider/constants";
+import {
+  BUSY_POLLING_INTERVAL_MS,
+  BUSY_POLLING_TIMEOUT_MS,
+  MAX_SUPPORTED_LAYOUT_VERSION,
+} from "@lichtblick/suite-base/providers/CurrentLayoutProvider/constants";
 import { ILayoutManager } from "@lichtblick/suite-base/services/ILayoutManager";
+import { BasicBuilder } from "@lichtblick/test-builders";
+
+jest.mock("notistack", () => ({
+  ...jest.requireActual("notistack"),
+  useSnackbar: jest.fn().mockReturnValue({
+    enqueueSnackbar: jest.fn(),
+  }),
+}));
 
 const TEST_LAYOUT: LayoutData = {
   layout: "ExamplePanel!1",
@@ -48,13 +62,13 @@ function makeMockLayoutManager() {
   return {
     supportsSharing: false,
     supportsSyncing: false,
-    isBusy: false,
+    isBusy: jest.fn().mockReturnValue(false),
     isOnline: false,
     error: undefined,
-    on: jest.fn(/*noop*/),
-    off: jest.fn(/*noop*/),
-    setError: jest.fn(/*noop*/),
-    setOnline: jest.fn(/*noop*/),
+    on: jest.fn(),
+    off: jest.fn(),
+    setError: jest.fn(),
+    setOnline: jest.fn(),
     getLayouts: jest.fn(),
     getLayout: jest.fn(),
     saveNewLayout: jest.fn().mockImplementation(mockThrow("saveNewLayout")),
@@ -75,9 +89,11 @@ function makeMockUserProfile() {
 function renderTest({
   mockLayoutManager,
   mockUserProfile,
+  mockAppParameters = {},
 }: {
   mockLayoutManager: ILayoutManager;
   mockUserProfile: UserProfileStorage;
+  mockAppParameters?: Record<string, string>;
 }) {
   const childMounted = new Condvar();
   const childMountedWait = childMounted.wait();
@@ -102,16 +118,18 @@ function renderTest({
           childMounted.notifyAll();
         }, []);
         return (
-          <SnackbarProvider>
-            <LayoutManagerContext.Provider value={mockLayoutManager}>
-              <UserProfileStorageContext.Provider value={mockUserProfile}>
-                <CurrentLayoutProvider loaders={[]}>
-                  {children}
-                  <CurrentLayoutSyncAdapter />
-                </CurrentLayoutProvider>
-              </UserProfileStorageContext.Provider>
-            </LayoutManagerContext.Provider>
-          </SnackbarProvider>
+          <AppParametersProvider appParameters={mockAppParameters}>
+            <SnackbarProvider>
+              <LayoutManagerContext.Provider value={mockLayoutManager}>
+                <UserProfileStorageContext.Provider value={mockUserProfile}>
+                  <CurrentLayoutProvider loaders={[]}>
+                    {children}
+                    <CurrentLayoutSyncAdapter />
+                  </CurrentLayoutProvider>
+                </UserProfileStorageContext.Provider>
+              </LayoutManagerContext.Provider>
+            </SnackbarProvider>
+          </AppParametersProvider>
         );
       },
     },
@@ -120,8 +138,19 @@ function renderTest({
 }
 
 describe("CurrentLayoutProvider", () => {
+  const mockLayoutManager = makeMockLayoutManager();
+  const mockUserProfile = makeMockUserProfile();
+
+  beforeEach(() => {
+    // Default mocks
+    mockLayoutManager.getLayout.mockImplementation(async () => undefined);
+    mockLayoutManager.getLayouts.mockImplementation(() => []);
+    mockUserProfile.getUserProfile.mockResolvedValue({ currentLayoutId: undefined });
+  });
+
   afterEach(() => {
     (console.warn as jest.Mock).mockClear();
+    jest.clearAllMocks();
   });
 
   it("uses currentLayoutId from UserProfile to load from LayoutStorage", async () => {
@@ -134,7 +163,18 @@ describe("CurrentLayoutProvider", () => {
     };
     const condvar = new Condvar();
     const layoutStorageGetCalledWait = condvar.wait();
-    const mockLayoutManager = makeMockLayoutManager();
+
+    mockLayoutManager.getLayouts.mockImplementation(async () => {
+      return [
+        {
+          id: "example",
+          name: "Example layout",
+          data: { data: expectedState },
+          permission: "CREATOR_WRITE",
+        },
+      ];
+    });
+
     mockLayoutManager.getLayout.mockImplementation(async () => {
       condvar.notifyAll();
       return {
@@ -144,7 +184,6 @@ describe("CurrentLayoutProvider", () => {
       };
     });
 
-    const mockUserProfile = makeMockUserProfile();
     mockUserProfile.getUserProfile.mockResolvedValue({ currentLayoutId: "example" });
 
     const { all } = renderTest({ mockLayoutManager, mockUserProfile });
@@ -152,7 +191,7 @@ describe("CurrentLayoutProvider", () => {
       await layoutStorageGetCalledWait;
     });
 
-    expect(mockLayoutManager.getLayout.mock.calls).toEqual([["example"], ["example"]]);
+    expect(mockLayoutManager.getLayouts).toHaveBeenCalled();
     expect(all.map((item) => (item instanceof Error ? undefined : item.layoutState))).toEqual([
       { selectedLayout: undefined },
       {
@@ -178,7 +217,18 @@ describe("CurrentLayoutProvider", () => {
 
     const condvar = new Condvar();
     const layoutStorageGetCalledWait = condvar.wait();
-    const mockLayoutManager = makeMockLayoutManager();
+
+    mockLayoutManager.getLayouts.mockImplementation(async () => {
+      return [
+        {
+          id: "example",
+          name: "Example layout",
+          data: { data: expectedState },
+          permission: "CREATOR_WRITE",
+        },
+      ];
+    });
+
     mockLayoutManager.getLayout.mockImplementation(async () => {
       condvar.notifyAll();
       return {
@@ -188,7 +238,6 @@ describe("CurrentLayoutProvider", () => {
       };
     });
 
-    const mockUserProfile = makeMockUserProfile();
     mockUserProfile.getUserProfile.mockResolvedValue({ currentLayoutId: "example" });
 
     const { all } = renderTest({ mockLayoutManager, mockUserProfile });
@@ -196,7 +245,7 @@ describe("CurrentLayoutProvider", () => {
       await layoutStorageGetCalledWait;
     });
 
-    expect(mockLayoutManager.getLayout.mock.calls).toEqual([["example"], ["example"]]);
+    expect(mockLayoutManager.getLayouts).toHaveBeenCalled();
     expect(all.map((item) => (item instanceof Error ? undefined : item.layoutState))).toEqual([
       { selectedLayout: undefined },
       { selectedLayout: undefined },
@@ -204,23 +253,24 @@ describe("CurrentLayoutProvider", () => {
   });
 
   it("keeps identity of action functions when modifying layout", async () => {
-    const mockLayoutManager = makeMockLayoutManager();
-    mockLayoutManager.getLayout.mockImplementation(async () => {
-      return {
-        id: "TEST_ID",
-        name: "Test layout",
-        baseline: { data: TEST_LAYOUT, updatedAt: new Date(10).toISOString() },
-      };
+    mockLayoutManager.getLayouts.mockImplementation(async () => {
+      return [
+        {
+          id: "example",
+          name: "Test layout",
+          data: { data: TEST_LAYOUT },
+          permission: "CREATOR_WRITE",
+        },
+      ];
     });
 
     mockLayoutManager.updateLayout.mockImplementation(async () => {
       return {
-        id: "TEST_ID",
+        id: "example",
         name: "Test layout",
         baseline: { data: TEST_LAYOUT, updatedAt: new Date(10).toISOString() },
       };
     });
-    const mockUserProfile = makeMockUserProfile();
     mockUserProfile.getUserProfile.mockResolvedValue({ currentLayoutId: "example" });
 
     const { result } = renderTest({
@@ -242,25 +292,22 @@ describe("CurrentLayoutProvider", () => {
   });
 
   it("selects the first layout in alphabetic order, when there is no selected layout", async () => {
-    const mockLayoutManager = makeMockLayoutManager();
-    mockLayoutManager.getLayout.mockImplementation(async () => undefined);
     mockLayoutManager.getLayouts.mockImplementation(async () => {
       return [
         {
           id: "layout1",
           name: "LAYOUT 1",
           data: { data: TEST_LAYOUT },
+          permission: "CREATOR_WRITE",
         },
         {
           id: "layout2",
           name: "ABC Layout 2",
           data: { data: TEST_LAYOUT },
+          permission: "CREATOR_WRITE",
         },
       ];
     });
-
-    const mockUserProfile = makeMockUserProfile();
-    mockUserProfile.getUserProfile.mockResolvedValue({ currentLayoutId: undefined });
 
     const { result, all } = renderTest({
       mockLayoutManager,
@@ -276,5 +323,280 @@ describe("CurrentLayoutProvider", () => {
 
     expect(selectedLayout).toBeDefined();
     expect(selectedLayout).toBe("layout2");
+  });
+
+  it("selects the first org layout, when current layout is not found", async () => {
+    mockLayoutManager.getLayouts.mockImplementation(async () => {
+      return [
+        {
+          id: "layout1",
+          name: "LAYOUT 1",
+          data: { data: TEST_LAYOUT },
+          permission: "CREATOR_WRITE",
+        },
+        {
+          id: "layout2",
+          name: "ORG Layout 2",
+          data: { data: TEST_LAYOUT },
+          permission: "ORG_READ",
+        },
+      ];
+    });
+    mockUserProfile.getUserProfile.mockResolvedValue({ currentLayoutId: "nonexistent" });
+
+    const { result, all } = renderTest({
+      mockLayoutManager,
+      mockUserProfile,
+    });
+
+    await act(async () => {
+      await result.current.childMounted;
+    });
+
+    const selectedLayout = all.find((item) => item.layoutState.selectedLayout?.id)?.layoutState
+      .selectedLayout?.id;
+
+    expect(selectedLayout).toBeDefined();
+    expect(selectedLayout).toBe("layout2");
+  });
+
+  it("selects the first org layout, if any, in alphabetic order, when there is no selected layout", async () => {
+    mockLayoutManager.getLayouts.mockImplementation(async () => {
+      return [
+        {
+          id: "layout1",
+          name: "ABC Layout 1",
+          data: { data: TEST_LAYOUT },
+          permission: "CREATOR_WRITE",
+        },
+        {
+          id: "layout2",
+          name: "DEF Layout 2",
+          data: { data: TEST_LAYOUT },
+          permission: "ORG_READ",
+        },
+        {
+          id: "layout3",
+          name: "ABC Layout 3",
+          data: { data: TEST_LAYOUT },
+          permission: "ORG_READ",
+        },
+      ];
+    });
+
+    const { result, all } = renderTest({
+      mockLayoutManager,
+      mockUserProfile,
+    });
+
+    await act(async () => {
+      await result.current.childMounted;
+    });
+
+    const selectedLayout = all.find((item) => item.layoutState.selectedLayout?.id)?.layoutState
+      .selectedLayout?.id;
+
+    expect(selectedLayout).toBeDefined();
+    expect(selectedLayout).toBe("layout3");
+  });
+
+  it("select a layout through app parameters", async () => {
+    const mockAppParameters = { defaultLayout: "LAYOUT 2" };
+    mockLayoutManager.getLayouts.mockImplementation(async () => {
+      return [
+        {
+          id: "layout1",
+          name: "LAYOUT 1",
+          data: { data: TEST_LAYOUT },
+          permission: "CREATOR_WRITE",
+        },
+        {
+          id: "layout2",
+          name: "LAYOUT 2",
+          data: { data: TEST_LAYOUT },
+          permission: "CREATOR_WRITE",
+        },
+        {
+          id: "layout3",
+          name: "ABC Layout 3",
+          data: { data: TEST_LAYOUT },
+          permission: "ORG_READ",
+        },
+      ];
+    });
+
+    const { result, all } = renderTest({
+      mockLayoutManager,
+      mockUserProfile,
+      mockAppParameters,
+    });
+
+    await act(async () => {
+      await result.current.childMounted;
+    });
+
+    const selectedLayout = all.find((item) => item.layoutState.selectedLayout?.id)?.layoutState
+      .selectedLayout?.id;
+
+    expect(selectedLayout).toBeDefined();
+    expect(selectedLayout).toBe("layout2");
+    // A ?layout= override is session-only and must not be persisted to the user profile.
+    expect(mockUserProfile.setUserProfile).not.toHaveBeenCalled();
+  });
+
+  it("prefers the organizational layout when the app parameter name matches multiple layouts", async () => {
+    const mockAppParameters = { defaultLayout: "SHARED LAYOUT" };
+    mockLayoutManager.getLayouts.mockImplementation(async () => {
+      return [
+        {
+          id: "personal",
+          name: "SHARED LAYOUT",
+          data: { data: TEST_LAYOUT },
+          permission: "CREATOR_WRITE",
+        },
+        {
+          id: "org",
+          name: "SHARED LAYOUT",
+          data: { data: TEST_LAYOUT },
+          permission: "ORG_READ",
+        },
+      ];
+    });
+
+    const { result, all } = renderTest({
+      mockLayoutManager,
+      mockUserProfile,
+      mockAppParameters,
+    });
+
+    await act(async () => {
+      await result.current.childMounted;
+    });
+
+    const selectedLayout = all.find((item) => item.layoutState.selectedLayout?.id)?.layoutState
+      .selectedLayout?.id;
+
+    expect(selectedLayout).toBe("org");
+  });
+
+  it("should show a message to the user if the defaultLayout from app parameter is not found", async () => {
+    const mockAppParameters = { defaultLayout: BasicBuilder.string() };
+
+    const { result } = renderTest({
+      mockLayoutManager,
+      mockUserProfile,
+      mockAppParameters,
+    });
+
+    await act(async () => {
+      await result.current.childMounted;
+    });
+
+    const { enqueueSnackbar } = useSnackbar();
+
+    expect(enqueueSnackbar).toHaveBeenCalledWith(
+      `The layout '${mockAppParameters.defaultLayout}' specified in the app parameters does not exist.`,
+      { variant: "warning" },
+    );
+  });
+
+  describe("Default layout logic", () => {
+    function mockBusyTimes(times: number) {
+      Array.from({ length: times }).forEach(() => {
+        mockLayoutManager.isBusy.mockReturnValueOnce(true);
+      });
+      mockLayoutManager.isBusy.mockReturnValue(false);
+    }
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+      (console.warn as jest.Mock).mockRestore();
+    });
+
+    it("should resolve immediately if layoutManager is not busy", async () => {
+      // Given/When
+      mockLayoutManager.isBusy.mockReturnValue(false);
+
+      const { result } = renderTest({ mockLayoutManager, mockUserProfile });
+
+      await act(async () => {
+        await result.current.childMounted;
+      });
+
+      // Then
+      expect(mockLayoutManager.isBusy).toHaveBeenCalled();
+      expect(console.warn).not.toHaveBeenCalled();
+      expect(mockLayoutManager.getLayouts).toHaveBeenCalled();
+    });
+
+    it("should poll until layoutManager is not busy", async () => {
+      // Given/When
+      const busyCount = 3;
+      mockBusyTimes(busyCount);
+
+      const { result } = renderTest({
+        mockLayoutManager,
+        mockUserProfile,
+      });
+
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(busyCount * BUSY_POLLING_INTERVAL_MS);
+        await result.current.childMounted;
+      });
+
+      // Then
+      expect(mockLayoutManager.isBusy).toHaveBeenCalledTimes(4);
+      expect(console.warn).not.toHaveBeenCalled();
+      expect(mockLayoutManager.getLayouts).toHaveBeenCalled();
+    });
+
+    it("should timeout after 5 seconds, log warning and continue as normal", async () => {
+      mockLayoutManager.isBusy.mockReturnValue(true); // Always busy
+
+      const { result } = renderTest({
+        mockLayoutManager,
+        mockUserProfile,
+      });
+
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(BUSY_POLLING_TIMEOUT_MS + 100);
+        await result.current.childMounted;
+      });
+
+      expect(console.warn).toHaveBeenCalledWith(
+        `CurrentLayoutProvider: timeout after ${BUSY_POLLING_TIMEOUT_MS}ms, continuing anyway`,
+      );
+      expect(mockLayoutManager.getLayouts).toHaveBeenCalled();
+    });
+  });
+
+  describe("Fallback Default layout creation", () => {
+    it("creates a personal Default layout when no layouts exist", async () => {
+      // Given a layout manager with no existing layouts and a user profile without a selection
+      const localOnlyManager = makeMockLayoutManager();
+      localOnlyManager.getLayouts.mockResolvedValue([]);
+      localOnlyManager.saveNewLayout.mockResolvedValue({
+        id: "new-default",
+        name: "Default",
+        baseline: { data: TEST_LAYOUT, updatedAt: new Date(10).toISOString() },
+      });
+      mockUserProfile.getUserProfile.mockResolvedValue({ currentLayoutId: undefined });
+
+      // When the provider initializes
+      const { result } = renderTest({ mockLayoutManager: localOnlyManager, mockUserProfile });
+      await act(async () => {
+        await result.current.childMounted;
+      });
+
+      // Then a personal Default layout is created
+      expect(localOnlyManager.saveNewLayout).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "Default", permission: "CREATOR_WRITE" }),
+      );
+    });
   });
 });

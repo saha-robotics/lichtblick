@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -26,7 +26,7 @@ const selectSelectedEventId = (store: EventsStore) => store.selectedEventId;
 
 function updateUrl(newState: AppURLState) {
   const newStateUrl = updateAppURLState(new URL(window.location.href), newState);
-  window.history.replaceState(undefined, "", newStateUrl.href);
+  window.history.replaceState(undefined, "", decodeURIComponent(newStateUrl.href));
 }
 
 /**
@@ -48,8 +48,14 @@ export function useStateToURLSynchronization(): void {
   }, [canSeek, debouncedCurrentTime]);
 
   // Sync player state with the url.
+  // When an mcap-bundle lookup key is present, skip writing ds/dsParams to avoid URL length issues.
   useEffect(() => {
     if (stablePlayerUrlState == undefined) {
+      return;
+    }
+
+    const currentUrl = new URL(globalThis.location.href);
+    if (currentUrl.searchParams.get("mcap-bundle")) {
       return;
     }
 
@@ -61,6 +67,11 @@ export function useStateToURLSynchronization(): void {
           eventId: selectedEventId,
         },
         _.isString,
+      ),
+      dsParamsArray: _.pickBy(
+        stablePlayerUrlState.parameters,
+
+        _.isArray,
       ),
     });
   }, [selectedEventId, stablePlayerUrlState]);

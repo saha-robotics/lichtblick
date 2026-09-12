@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -10,10 +10,12 @@ import * as THREE from "three";
 import { Writable } from "ts-essentials";
 
 import { filterMap } from "@lichtblick/den/collection";
-import { PinholeCameraModel } from "@lichtblick/den/image";
+import { selectCameraModel } from "@lichtblick/den/image";
+import { CameraModelsMap } from "@lichtblick/den/image/types";
 import Logger from "@lichtblick/log";
 import { toNanoSec } from "@lichtblick/rostime";
 import {
+  ICameraModel,
   Immutable,
   MessageEvent,
   SettingsTreeAction,
@@ -22,12 +24,40 @@ import {
 } from "@lichtblick/suite";
 import { PanelContextMenuItem } from "@lichtblick/suite-base/components/PanelContextMenu";
 import { DraggedMessagePath } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
-import { HUDItem } from "@lichtblick/suite-base/panels/ThreeDeeRender/HUDItemManager";
 import { Path } from "@lichtblick/suite-base/panels/ThreeDeeRender/LayerErrors";
 import {
+  COMPRESSED_VIDEO_DATATYPES,
+  COMPRESSED_IMAGE_DATATYPES,
+  RAW_IMAGE_DATATYPES,
+} from "@lichtblick/suite-base/panels/ThreeDeeRender/foxglove";
+import {
+  ALL_SUPPORTED_CALIBRATION_SCHEMAS,
+  ALL_SUPPORTED_IMAGE_SCHEMAS,
+  CALIBRATION_TOPIC_PATH,
+  CALIBRATION_TOPIC_UNAVAILABLE,
+  CAMERA_MODEL,
+  DEFAULT_FOCAL_LENGTH,
+  DEFAULT_IMAGE_CONFIG,
   IMAGE_MODE_HUD_GROUP_ID,
+  IMAGE_TOPIC_DIFFERENT_FRAME,
   IMAGE_TOPIC_PATH,
+  IMAGE_TOPIC_UNAVAILABLE,
+  MAX_BRIGHTNESS,
+  MAX_CONTRAST,
+  MIN_BRIGHTNESS,
+  MIN_CONTRAST,
+  MISSING_CAMERA_INFO,
+  NO_IMAGE_TOPICS_HUD_ITEM,
+  REMOVE_IMAGE_TIMEOUT_MS,
+  SUPPORTED_RAW_IMAGE_SCHEMAS,
+  BOTH_TOPICS_DO_NOT_EXIST_HUD_ITEM_ID,
+  IMAGE_TOPIC_DOES_NOT_EXIST_HUD_ITEM_ID,
+  CALIBRATION_TOPIC_DOES_NOT_EXIST_HUD_ITEM_ID,
 } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ImageMode/constants";
+import {
+  ConfigWithDefaults,
+  ImageModeEventMap,
+} from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ImageMode/types";
 import {
   IMAGE_RENDERABLE_DEFAULT_SETTINGS,
   ImageRenderable,
@@ -36,26 +66,22 @@ import {
 } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/Images/ImageRenderable";
 import {
   AnyImage,
+  CompressedVideo,
   getFrameIdFromImage,
 } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/Images/ImageTypes";
-import { IMAGE_DEFAULT_COLOR_MODE_SETTINGS } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/Images/decodeImage";
+import { filterCompressedVideoQueue } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/Images/filterCompressedVideoQueue";
 import {
   cameraInfosEqual,
   normalizeCameraInfo,
 } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/projections";
 import { t3D } from "@lichtblick/suite-base/panels/ThreeDeeRender/t3D";
-import { makePose } from "@lichtblick/suite-base/panels/ThreeDeeRender/transforms";
+import { makePose, AnyFrameId } from "@lichtblick/suite-base/panels/ThreeDeeRender/transforms";
 import { AppEvent } from "@lichtblick/suite-base/services/IAnalytics";
 import { downloadFiles } from "@lichtblick/suite-base/util/download";
 
 import { ImageModeCamera } from "./ImageModeCamera";
 import { IMessageHandler, MessageHandler, MessageRenderState } from "./MessageHandler";
 import { ImageAnnotations } from "./annotations/ImageAnnotations";
-import {
-  BOTH_TOPICS_DO_NOT_EXIST_HUD_ITEM_ID,
-  IMAGE_TOPIC_DOES_NOT_EXIST_HUD_ITEM_ID,
-  CALIBRATION_TOPIC_DOES_NOT_EXIST_HUD_ITEM_ID,
-} from "./constants";
 import type {
   AnyRendererSubscription,
   IRenderer,
@@ -65,14 +91,8 @@ import type {
 import { PartialMessageEvent, SceneExtension } from "../../SceneExtension";
 import { SettingsTreeEntry } from "../../SettingsManager";
 import {
-  CAMERA_CALIBRATION_DATATYPES,
-  COMPRESSED_IMAGE_DATATYPES,
-  RAW_IMAGE_DATATYPES,
-} from "../../foxglove";
-import {
   IMAGE_DATATYPES as ROS_IMAGE_DATATYPES,
   COMPRESSED_IMAGE_DATATYPES as ROS_COMPRESSED_IMAGE_DATATYPES,
-  CAMERA_INFO_DATATYPES,
   CameraInfo,
 } from "../../ros";
 import { topicIsConvertibleToSchema } from "../../topicIsConvertibleToSchema";
@@ -82,53 +102,6 @@ import { colorModeSettingsFields } from "../colorMode";
 
 const log = Logger.getLogger(__filename);
 
-const CALIBRATION_TOPIC_PATH = ["imageMode", "calibrationTopic"];
-
-const IMAGE_TOPIC_UNAVAILABLE = "IMAGE_TOPIC_UNAVAILABLE";
-const CALIBRATION_TOPIC_UNAVAILABLE = "CALIBRATION_TOPIC_UNAVAILABLE";
-
-const MISSING_CAMERA_INFO = "MISSING_CAMERA_INFO";
-const IMAGE_TOPIC_DIFFERENT_FRAME = "IMAGE_TOPIC_DIFFERENT_FRAME";
-
-const CAMERA_MODEL = "CameraModel";
-
-const DEFAULT_FOCAL_LENGTH = 500;
-
-const REMOVE_IMAGE_TIMEOUT_MS = 50;
-
-const NO_IMAGE_TOPICS_HUD_ITEM: HUDItem = {
-  id: "NO_IMAGE_TOPICS",
-  group: IMAGE_MODE_HUD_GROUP_ID,
-  getMessage: () => t3D("noImageTopicsAvailable"),
-  displayType: "empty",
-};
-interface ImageModeEventMap extends THREE.Object3DEventMap {
-  hasModifiedViewChanged: object;
-}
-
-export const ALL_SUPPORTED_IMAGE_SCHEMAS = new Set([
-  ...ROS_IMAGE_DATATYPES,
-  ...ROS_COMPRESSED_IMAGE_DATATYPES,
-  ...RAW_IMAGE_DATATYPES,
-  ...COMPRESSED_IMAGE_DATATYPES,
-]);
-
-const SUPPORTED_RAW_IMAGE_SCHEMAS = new Set([...RAW_IMAGE_DATATYPES, ...ROS_IMAGE_DATATYPES]);
-
-const ALL_SUPPORTED_CALIBRATION_SCHEMAS = new Set([
-  ...CAMERA_INFO_DATATYPES,
-  ...CAMERA_CALIBRATION_DATATYPES,
-]);
-
-const DEFAULT_CONFIG = {
-  synchronize: false,
-  flipHorizontal: false,
-  flipVertical: false,
-  rotation: 0 as 0 | 90 | 180 | 270,
-  ...IMAGE_DEFAULT_COLOR_MODE_SETTINGS,
-};
-
-type ConfigWithDefaults = ImageModeConfig & typeof DEFAULT_CONFIG;
 export class ImageMode
   extends SceneExtension<ImageRenderable, ImageModeEventMap>
   implements ICameraHandler
@@ -137,7 +110,7 @@ export class ImageMode
   #camera: ImageModeCamera;
   #cameraModel:
     | {
-        model: PinholeCameraModel;
+        model: ICameraModel;
         info: CameraInfo;
       }
     | undefined;
@@ -155,8 +128,12 @@ export class ImageMode
   #dragStartMouseCoords = new THREE.Vector2();
   #hasModifiedView = false;
 
+  public customCameraModels: CameraModelsMap;
+
   public constructor(renderer: IRenderer, name: string = ImageMode.extensionId) {
     super(name, renderer);
+
+    this.customCameraModels = renderer.customCameraModels;
 
     this.#camera = new ImageModeCamera();
     const canvasSize = renderer.input.canvasSize;
@@ -294,6 +271,15 @@ export class ImageMode
           filterQueue: this.#filterMessageQueue.bind(this),
         },
       },
+      {
+        type: "schema",
+        schemaNames: COMPRESSED_VIDEO_DATATYPES,
+        subscription: {
+          handler: this.messageHandler.handleCompressedVideo,
+          shouldSubscribe: this.imageShouldSubscribe,
+          filterQueue: this.#filterCompressedVideoMessageQueue.bind(this),
+        },
+      },
     ];
     return subscriptions.concat(this.#annotations.getSubscriptions());
   }
@@ -306,6 +292,22 @@ export class ImageMode
     return msgs;
   }
 
+  /**
+   * Compressed video filter: same shape as `#filterMessageQueue` but aware that HEVC P-frames
+   * cannot be dropped without losing decodability. When synchronization is on we keep every
+   * message (sync needs the full timeline); when it is off we delegate to
+   * {@link filterCompressedVideoQueue}, which trims to the latest frame for non-HEVC topics and
+   * to the active GOP for HEVC topics.
+   */
+  #filterCompressedVideoMessageQueue(
+    msgs: MessageEvent<CompressedVideo>[],
+  ): MessageEvent<CompressedVideo>[] {
+    if (this.getImageModeSettings().synchronize) {
+      return msgs;
+    }
+    return filterCompressedVideoQueue(msgs);
+  }
+
   public override dispose(): void {
     this.renderer.settings.errors.off("update", this.#handleErrorChange);
     this.renderer.settings.errors.off("clear", this.#handleErrorChange);
@@ -316,10 +318,28 @@ export class ImageMode
     super.dispose();
   }
 
+  public override startFrame(
+    currentTime: bigint,
+    renderFrameId: AnyFrameId,
+    fixedFrameId: AnyFrameId,
+  ): void {
+    // All setImage() calls for this frame have been made by the time startFrame() fires (they
+    // happen inside #handleSubscriptionQueues(), which runs before startFrame()). Flushing here
+    // means the full GOP batch is already in the queue, so skipRender correctly suppresses every
+    // intermediate frame and only the last one triggers a GPU upload.
+    this.imageRenderable?.flushPendingDecodes();
+    super.startFrame(currentTime, renderFrameId, fixedFrameId);
+  }
+
+  public override async settleVideoDecodes(): Promise<void> {
+    await this.imageRenderable?.settleVideoDecodes();
+  }
+
   public override removeAllRenderables(): void {
     // To avoid flickering while seeking or changing subscriptions, we avoid clearing the
     // ImageRenderable for a short timeout. When a new image message arrives, we cancel the timeout,
     // so the old image will continue displaying until the new one has been decoded.
+    this.imageRenderable?.resetVideoForSeek();
     if (this.#removeImageTimeout == undefined) {
       this.#removeImageTimeout = setTimeout(() => {
         this.#removeImageTimeout = undefined;
@@ -410,6 +430,8 @@ export class ImageMode
       flipHorizontal,
       flipVertical,
       rotation,
+      brightness,
+      contrast,
     } = settings;
 
     const imageTopics = filterMap(this.renderer.topics ?? [], (topic) => {
@@ -524,6 +546,22 @@ export class ImageMode
         { label: "270°", value: 270 },
       ],
     };
+    fields.brightness = {
+      input: "slider",
+      label: "Brightness",
+      min: MIN_BRIGHTNESS,
+      max: MAX_BRIGHTNESS,
+      value: brightness,
+      step: 5,
+    };
+    fields.contrast = {
+      input: "slider",
+      label: "Contrast",
+      min: MIN_CONTRAST,
+      max: MAX_CONTRAST,
+      value: contrast,
+      step: 5,
+    };
 
     const imageTopic =
       imageTopicName != undefined ? this.renderer.topicsByName?.get(imageTopicName) : undefined;
@@ -537,7 +575,7 @@ export class ImageMode
         config: settings as ImageModeConfig,
 
         defaults: {
-          gradient: DEFAULT_CONFIG.gradient,
+          gradient: DEFAULT_IMAGE_CONFIG.gradient,
         },
         modifiers: {
           supportsPackedRgbModes: false,
@@ -624,6 +662,8 @@ export class ImageMode
       explicitAlpha: config.explicitAlpha,
       minValue: config.minValue,
       maxValue: config.maxValue,
+      brightness: config.brightness,
+      contrast: config.contrast,
     });
     if (config.synchronize !== prevImageModeConfig.synchronize) {
       this.hud.removeGroup(IMAGE_MODE_HUD_GROUP_ID);
@@ -781,9 +821,13 @@ export class ImageMode
       // planarProjectionFactor must be 1 to avoid imprecise projection due to small number of grid subdivisions
       planarProjectionFactor: 1,
     };
+    const messageTime = image
+      ? toNanoSec("header" in image ? image.header.stamp : image.timestamp)
+      : 0n;
     renderable = this.initRenderable(topicName, {
       receiveTime,
-      messageTime: image ? toNanoSec("header" in image ? image.header.stamp : image.timestamp) : 0n,
+      messageTime,
+      firstMessageTime: messageTime,
       frameId: this.renderer.normalizeFrameId(frameId),
       pose: makePose(),
       settingsPath: IMAGE_TOPIC_PATH,
@@ -845,12 +889,12 @@ export class ImageMode
 
     const colorMode =
       config.colorMode === "rgba-fields"
-        ? DEFAULT_CONFIG.colorMode
-        : config.colorMode ?? DEFAULT_CONFIG.colorMode;
+        ? DEFAULT_IMAGE_CONFIG.colorMode
+        : (config.colorMode ?? DEFAULT_IMAGE_CONFIG.colorMode);
 
     // Ensures that no required fields are left undefined
     // rightmost values are applied last and have the most precedence
-    return _.merge({}, DEFAULT_CONFIG, { colorMode }, config);
+    return _.merge({}, DEFAULT_IMAGE_CONFIG, { colorMode }, config);
   }
 
   /**
@@ -890,11 +934,13 @@ export class ImageMode
     // If the camera info has not changed, we don't need to make a new model and can return the existing one
     const currentCameraInfo = this.#cameraModel?.info;
     const dataEqual = cameraInfosEqual(currentCameraInfo, newCameraInfo);
+
     if (dataEqual && currentCameraInfo != undefined) {
       return;
     }
 
-    const model = this.#getPinholeCameraModel(newCameraInfo);
+    const model = this.#getCameraModel(newCameraInfo);
+
     if (model) {
       this.#cameraModel = {
         model,
@@ -905,14 +951,14 @@ export class ImageMode
   }
 
   /**
-   * Returns PinholeCameraModel for given CameraInfo
+   * Returns ICameraModel for given CameraInfo
    * This function will set a topic error on the image topic if the camera model creation fails.
    * @param cameraInfo - CameraInfo to create model from
    */
-  #getPinholeCameraModel(cameraInfo: CameraInfo): PinholeCameraModel | undefined {
+  #getCameraModel(cameraInfo: CameraInfo): ICameraModel | undefined {
     let model = undefined;
     try {
-      model = new PinholeCameraModel(cameraInfo);
+      model = selectCameraModel(cameraInfo, this.customCameraModels);
       this.renderer.settings.errors.remove(CALIBRATION_TOPIC_PATH, CAMERA_MODEL);
     } catch (errUnk) {
       this.#cameraModel = undefined;
@@ -1009,7 +1055,7 @@ export class ImageMode
         // remove any leading / so the image name doesn't start with _
         const topicName = topic.replace(/^\/+/, "");
         const fileName = `${topicName}-${stamp.sec}-${stamp.nsec}`;
-        void this.renderer.analytics?.logEvent(AppEvent.IMAGE_DOWNLOAD);
+        this.renderer.analytics?.logEvent(AppEvent.IMAGE_DOWNLOAD);
         if (this.renderer.testOptions.onDownloadImage) {
           this.renderer.testOptions.onDownloadImage(blob, fileName);
         } else {
@@ -1034,6 +1080,10 @@ export class ImageMode
       },
     ];
   }
+
+  public setCustomCameraModels(newCameraModels: CameraModelsMap): void {
+    this.customCameraModels = newCameraModels;
+  }
 }
 
 const createFallbackCameraInfoForImage = (options: {
@@ -1056,17 +1106,9 @@ const createFallbackCameraInfoForImage = (options: {
     R: [1, 0, 0, 0, 1, 0, 0, 0, 1],
     D: [],
     // prettier-ignore
-    K: [
-      fx, 0, cx,
-      0, fy, cy,
-      0, 0, 1,
-    ],
+    K: [fx, 0, cx, 0, fy, cy, 0, 0, 1],
     // prettier-ignore
-    P: [
-      fx, 0, cx, 0,
-      0, fy, cy, 0,
-      0, 0, 1, 0,
-    ],
+    P: [fx, 0, cx, 0, 0, fy, cy, 0, 0, 0, 1, 0],
   });
   return cameraInfo;
 };

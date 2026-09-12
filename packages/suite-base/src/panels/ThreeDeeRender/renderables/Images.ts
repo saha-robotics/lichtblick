@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -10,20 +10,23 @@ import { t } from "i18next";
 import { assert } from "ts-essentials";
 
 import { MultiMap, filterMap } from "@lichtblick/den/collection";
-import { PinholeCameraModel } from "@lichtblick/den/image";
+import { selectCameraModel } from "@lichtblick/den/image";
+import { CameraModelsMap } from "@lichtblick/den/image/types";
 import Logger from "@lichtblick/log";
 import { toNanoSec } from "@lichtblick/rostime";
 import { SettingsTreeAction, SettingsTreeFields } from "@lichtblick/suite";
-import { ALL_SUPPORTED_IMAGE_SCHEMAS } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ImageMode/ImageMode";
+import { ALL_SUPPORTED_IMAGE_SCHEMAS } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ImageMode/constants";
 
 import {
   IMAGE_RENDERABLE_DEFAULT_SETTINGS,
   ImageRenderable,
   ImageUserData,
 } from "./Images/ImageRenderable";
-import { ALL_CAMERA_INFO_SCHEMAS, AnyImage } from "./Images/ImageTypes";
+import { ALL_CAMERA_INFO_SCHEMAS, AnyImage, CompressedVideo } from "./Images/ImageTypes";
+import { filterCompressedVideoQueue } from "./Images/filterCompressedVideoQueue";
 import {
   normalizeCompressedImage,
+  normalizeCompressedVideo,
   normalizeRawImage,
   normalizeRosCompressedImage,
   normalizeRosImage,
@@ -36,6 +39,7 @@ import { SettingsTreeEntry } from "../SettingsManager";
 import {
   CAMERA_CALIBRATION_DATATYPES,
   COMPRESSED_IMAGE_DATATYPES,
+  COMPRESSED_VIDEO_DATATYPES,
   RAW_IMAGE_DATATYPES,
 } from "../foxglove";
 import {
@@ -48,7 +52,7 @@ import {
 } from "../ros";
 import { BaseSettings, PRECISION_DISTANCE } from "../settings";
 import { topicIsConvertibleToSchema } from "../topicIsConvertibleToSchema";
-import { makePose } from "../transforms";
+import { makePose, AnyFrameId } from "../transforms";
 
 const log = Logger.getLogger(__filename);
 void log;
@@ -83,10 +87,13 @@ export class Images extends SceneExtension<ImageRenderable> {
    */
   #cameraInfoByTopic = new Map<string, CameraInfo>();
 
+  public customCameraModels: CameraModelsMap;
+
   protected supportedImageSchemas = ALL_SUPPORTED_IMAGE_SCHEMAS;
 
   public constructor(renderer: IRenderer, name: string = Images.extensionId) {
     super(name, renderer);
+    this.customCameraModels = renderer.customCameraModels;
     this.renderer.on("topicsChanged", this.#handleTopicsChanged);
     this.#handleTopicsChanged();
   }
@@ -94,6 +101,29 @@ export class Images extends SceneExtension<ImageRenderable> {
   public override dispose(): void {
     this.renderer.off("topicsChanged", this.#handleTopicsChanged);
     super.dispose();
+  }
+
+  public override startFrame(
+    currentTime: bigint,
+    renderFrameId: AnyFrameId,
+    fixedFrameId: AnyFrameId,
+  ): void {
+    // All setImage() calls for this frame have been made by the time startFrame() fires (they
+    // happen inside #handleSubscriptionQueues(), which runs before startFrame()). Flushing here
+    // means the full GOP batch is already in each queue, so skipRender correctly suppresses every
+    // intermediate frame and only the last one triggers a GPU upload.
+    for (const renderable of this.renderables.values()) {
+      renderable.flushPendingDecodes();
+    }
+    super.startFrame(currentTime, renderFrameId, fixedFrameId);
+  }
+
+  public override async settleVideoDecodes(): Promise<void> {
+    await Promise.all(
+      Array.from(this.renderables.values(), async (renderable) => {
+        await renderable.settleVideoDecodes();
+      }),
+    );
   }
 
   public override getSubscriptions(): readonly AnyRendererSubscription[] {
@@ -133,6 +163,16 @@ export class Images extends SceneExtension<ImageRenderable> {
         subscription: {
           handler: this.#handleCompressedImage,
           filterQueue: onlyLastByTopicMessage,
+        },
+      },
+      {
+        type: "schema",
+        schemaNames: COMPRESSED_VIDEO_DATATYPES,
+        subscription: {
+          handler: this.#handleCompressedVideo,
+          // For non-HEVC streams this collapses to the original onlyLastByTopicMessage behavior.
+          // For HEVC, the filter preserves the active GOP so P-frames are still decodable.
+          filterQueue: filterCompressedVideoQueue,
         },
       },
     ];
@@ -221,17 +261,14 @@ export class Images extends SceneExtension<ImageRenderable> {
     }
 
     const imageTopic = path[1]!;
-    const prevSettings = this.renderer.config.topics[imageTopic] as
-      | Partial<LayerSettingsImage>
-      | undefined;
-    const prevCameraInfoTopic = prevSettings?.cameraInfoTopic;
+    const prevSettings = (this.renderer.config.topics[imageTopic] ??
+      {}) as Partial<LayerSettingsImage>;
+    const prevCameraInfoTopic = prevSettings.cameraInfoTopic;
 
     this.saveSetting(path, action.payload.value);
 
-    const settings = this.renderer.config.topics[imageTopic] as
-      | Partial<LayerSettingsImage>
-      | undefined;
-    const cameraInfoTopic = settings?.cameraInfoTopic;
+    const settings = (this.renderer.config.topics[imageTopic] ?? {}) as Partial<LayerSettingsImage>;
+    const cameraInfoTopic = settings.cameraInfoTopic;
 
     // Add this camera_info_topic -> image_topic mapping
     if (cameraInfoTopic !== prevCameraInfoTopic && cameraInfoTopic != undefined) {
@@ -301,6 +338,10 @@ export class Images extends SceneExtension<ImageRenderable> {
 
   #handleCompressedImage = (messageEvent: PartialMessageEvent<CompressedImage>): void => {
     this.handleImage(messageEvent, normalizeCompressedImage(messageEvent.message));
+  };
+
+  #handleCompressedVideo = (messageEvent: PartialMessageEvent<CompressedVideo>): void => {
+    this.handleImage(messageEvent, normalizeCompressedVideo(messageEvent.message));
   };
 
   protected handleImage = (messageEvent: PartialMessageEvent<AnyImage>, image: AnyImage): void => {
@@ -410,7 +451,8 @@ export class Images extends SceneExtension<ImageRenderable> {
     const imageTopic = renderable.userData.topic;
 
     try {
-      renderable.setCameraModel(new PinholeCameraModel(newCameraInfo));
+      const cameraModel = selectCameraModel(newCameraInfo, this.customCameraModels);
+      renderable.setCameraModel(cameraModel);
       renderable.userData.cameraInfo = newCameraInfo;
       this.renderer.settings.errors.removeFromTopic(imageTopic, CAMERA_MODEL);
     } catch (errUnk) {
@@ -432,13 +474,14 @@ export class Images extends SceneExtension<ImageRenderable> {
     }
 
     // Look up any existing settings for the image topic to save as user data with the renderable
-    const userSettings = this.renderer.config.topics[imageTopic] as
-      | Partial<LayerSettingsImage>
-      | undefined;
-
+    const userSettings = this.renderer.config.topics[imageTopic];
+    const messageTime = image
+      ? toNanoSec("header" in image ? image.header.stamp : image.timestamp)
+      : 0n;
     renderable = this.initRenderable(imageTopic, {
       receiveTime,
-      messageTime: image ? toNanoSec("header" in image ? image.header.stamp : image.timestamp) : 0n,
+      messageTime,
+      firstMessageTime: messageTime,
       frameId: this.renderer.normalizeFrameId(frameId),
       pose: makePose(),
       settingsPath: ["topics", imageTopic],
@@ -459,5 +502,9 @@ export class Images extends SceneExtension<ImageRenderable> {
   }
   protected initRenderable(topicName: string, userData: ImageUserData): ImageRenderable {
     return new ImageRenderable(topicName, this.renderer, userData);
+  }
+
+  public setCustomCameraModels(newCameraModels: CameraModelsMap): void {
+    this.customCameraModels = newCameraModels;
   }
 }

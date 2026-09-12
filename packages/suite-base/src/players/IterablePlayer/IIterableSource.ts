@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -8,17 +8,23 @@
 import { Time } from "@lichtblick/rostime";
 import { Immutable, MessageEvent, Metadata } from "@lichtblick/suite";
 import {
-  PlayerProblem,
+  PlayerAlert,
   Topic,
   TopicSelection,
   TopicStats,
 } from "@lichtblick/suite-base/players/types";
 import { RosDatatypes } from "@lichtblick/suite-base/types/RosDatatypes";
 
-export type Initalization = {
+export type TopicWithDecodingInfo = Topic & {
+  messageEncoding?: string;
+  schemaEncoding?: string;
+  schemaData?: Uint8Array;
+};
+
+export type Initialization = {
   start: Time;
   end: Time;
-  topics: Topic[];
+  topics: TopicWithDecodingInfo[];
   topicStats: Map<string, TopicStats>;
   datatypes: RosDatatypes;
   profile: string | undefined;
@@ -28,7 +34,7 @@ export type Initalization = {
   /** Publisher names by topic **/
   publishersByTopic: Map<string, Set<string>>;
 
-  problems: PlayerProblem[];
+  alerts: PlayerAlert[];
 };
 
 export type MessageIteratorArgs = {
@@ -68,26 +74,26 @@ export type MessageIteratorArgs = {
  * types of results.
  *
  * - message-event: the result contains a MessageEvent
- * - problem: the result contains a problem
+ * - alert: the result contains an alert
  * - stamp: the result is a timestamp
  *
  * Note: A stamp result acts as a marker indicating that the source has reached the specified stamp.
  * The source may return stamp results to indicate to callers that it has read through some time
  * when there are no message events available to indicate the time is reached.
  */
-export type IteratorResult =
+export type IteratorResult<MessageType = unknown> =
   | {
       type: "message-event";
-      msgEvent: MessageEvent;
+      msgEvent: MessageEvent<MessageType>;
     }
   | {
-      type: "problem";
+      type: "alert";
       /**
-       * An ID representing the channel/connection where this problem came from. The app may choose
-       * to display only a single problem from each connection to avoid overwhelming the user.
+       * An ID representing the channel/connection where this alert came from. The app may choose
+       * to display only a single alert from each connection to avoid overwhelming the user.
        */
       connectionId: number;
-      problem: PlayerProblem;
+      alert: PlayerAlert;
     }
   | {
       type: "stamp";
@@ -101,22 +107,14 @@ export type GetBackfillMessagesArgs = {
   abortSignal?: AbortSignal;
 };
 
-// IMessageCursor describes an interface for message cursors. Message cursors are a similar concept
-// to javascript generators but provide a method for reading a batch of messages rather than one
-// message.
-//
-// Motivation: When using webworkers, read calls are invoked via an RPC interface. For large
-// datasets (many hundred thousand) messages, preloading the data (i.e. to plot a signal) would
-// result in several hundred thousand RPC calls. The overhead of making these calls add up and
-// negatively impact the preloading experience.
-//
-// Providing an interface which allows callers to read a batch of messages significantly (4x speedup
-// on an 700k message dataset on M1 Pro) reduces the RPC call overhead.
-export interface IMessageCursor {
+// IMessageCursor is similar to a JavaScript generator, but it can return message batches.
+// For worker/RPC-backed sources this avoids one round-trip per message when preloading large
+// datasets and substantially reduces overhead.
+export interface IMessageCursor<MessageType = unknown> {
   /**
    * Read the next message from the cursor. Return a result or undefined if the cursor is done
    */
-  next(): Promise<IteratorResult | undefined>;
+  next(): Promise<IteratorResult<MessageType> | undefined>;
 
   /**
    * Read the next batch of messages from the cursor. Return an array of results or undefined if the cursor is done.
@@ -125,14 +123,14 @@ export interface IMessageCursor {
    * more messages and return. This duration tracks the receive time from the first message in the
    * batch.
    */
-  nextBatch(durationMs: number): Promise<IteratorResult[] | undefined>;
+  nextBatch(durationMs: number): Promise<IteratorResult<MessageType>[] | undefined>;
 
   /**
    * Read a batch of messages through end time (inclusive) or end of cursor
    *
    * return undefined when no more message remain in the cursor
    */
-  readUntil(end: Time): Promise<IteratorResult[] | undefined>;
+  readUntil(end: Time): Promise<IteratorResult<MessageType>[] | undefined>;
 
   /**
    * End the cursor
@@ -150,11 +148,11 @@ export interface IMessageCursor {
  *
  * IIterableSources also provide a backfill method to obtain the last message available for topics.
  */
-export interface IIterableSource {
+export interface IIterableSource<MessageType = unknown> {
   /**
    * Initialize the source.
    */
-  initialize(): Promise<Initalization>;
+  initialize(): Promise<Initialization>;
 
   /**
    * Instantiate an IMessageIterator for the source.
@@ -162,23 +160,21 @@ export interface IIterableSource {
    * The iterator produces IteratorResults from the source. The IteratorResults should be in log
    * time order.
    *
-   * Returning an AsyncIterator rather than AsyncIterable communicates that the returned iterator
-   * cannot be used directly in a `for-await-of` loop. This forces the IterablePlayer implementation
-   * to use the `.next()` API, rather than `for-await-of` which would implicitly call the iterator's
-   * `return()` method when breaking out of the loop and prevent the iterator from being used in
-   * more than one loop. This means the IIterableSource implementations can use a simple async
-   * generator function, and a `finally` block to do any necessary cleanup tasks when the request
-   * finishes or is canceled.
+   * Returning an AsyncIterator rather than something intended for `for-await-of` forces callers to
+   * use `.next()`. That avoids implicit `return()` calls when a loop exits, so implementations can
+   * rely on generator `finally` cleanup only when the request actually finishes or is canceled.
    */
   messageIterator(
     args: Immutable<MessageIteratorArgs>,
-  ): AsyncIterableIterator<Readonly<IteratorResult>>;
+  ): AsyncIterableIterator<Readonly<IteratorResult<MessageType>>>;
 
   /**
    * Load the most recent messages per topic that occurred before or at the target time, if
    * available.
    */
-  getBackfillMessages(args: Immutable<GetBackfillMessagesArgs>): Promise<MessageEvent[]>;
+  getBackfillMessages(
+    args: Immutable<GetBackfillMessagesArgs>,
+  ): Promise<MessageEvent<MessageType>[]>;
 
   /**
    * A source can optionally implement a cursor interface in addition to a messageIterator interface.
@@ -189,23 +185,54 @@ export interface IIterableSource {
    */
   getMessageCursor?: (
     args: Immutable<MessageIteratorArgs> & { abort?: AbortSignal },
-  ) => IMessageCursor;
+  ) => IMessageCursor<MessageType>;
+
+  getStart?: () => Time | undefined;
+
+  getEnd?: () => Time | undefined;
 
   /**
    * Optional method a data source can implement to cleanup resources. The player will call this
    * method when the source will no longer be used.
    */
   terminate?: () => Promise<void>;
+
+  /**
+   * Optional method a data source can implement to warm itself up before it becomes the active
+   * source (e.g. hydrate a pooled reader ahead of playback reaching it). Failures should be
+   * treated as non-fatal by callers; the source can still hydrate on demand later.
+   */
+  prewarm?: () => Promise<void>;
 }
 
 export type IterableSourceInitializeArgs = {
   file?: File;
   url?: string;
   files?: File[];
+  urls?: string[];
+  // Optional overrides for multi-file hydration tuning (see MultiSourceHydrationOptions in
+  // players/IterablePlayer/shared/types.ts). Only meaningful when `files`/`urls` has more than
+  // one entry. When omitted, MultiIterableSource's internal defaults apply.
+  maxHydratedSources?: number;
+  maxHydratedBytes?: number;
+  initConcurrency?: number;
   params?: Record<string, string | undefined>;
 
   api?: {
     baseUrl: string;
     auth?: string;
   };
+};
+
+/**
+ * Interface for a raw iterable source where messages are in their serialized byte form (Uint8Arrays).
+ * A raw source is well suited for workers as array buffers can be efficientely transferred to the main thread.
+ */
+export type ISerializedIterableSource = IIterableSource<Uint8Array> & { sourceType: "serialized" };
+
+/**
+ * Interface for a deserialized iterable source where messages are in their deserialized form (unknown).
+ */
+export type IDeserializedIterableSource = IIterableSource & {
+  sourceType: "deserialized";
 };

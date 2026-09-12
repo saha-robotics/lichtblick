@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -14,59 +14,36 @@
 //   found at http://www.apache.org/licenses/LICENSE-2.0
 //   You may not use this file except in compliance with the License.
 
+import FullscreenIcon from "@mui/icons-material/Fullscreen";
 import FullscreenExitIcon from "@mui/icons-material/FullscreenExit";
 import { Typography } from "@mui/material";
-import { useContext, useMemo, CSSProperties } from "react";
-import { makeStyles } from "tss-react/mui";
+import { useContext, useMemo } from "react";
 
 import PanelContext from "@lichtblick/suite-base/components/PanelContext";
+import { useStyles } from "@lichtblick/suite-base/components/PanelToolbar/PanelToolbar.style";
 import ToolbarIconButton from "@lichtblick/suite-base/components/PanelToolbar/ToolbarIconButton";
-import { PANEL_TOOLBAR_MIN_HEIGHT } from "@lichtblick/suite-base/components/PanelToolbar/constants";
+import { PanelToolbarProps } from "@lichtblick/suite-base/components/PanelToolbar/types";
 import { useDefaultPanelTitle } from "@lichtblick/suite-base/providers/PanelStateContextProvider";
 import { PANEL_TITLE_CONFIG_KEY } from "@lichtblick/suite-base/util/layout";
 
 import { PanelToolbarControls } from "./PanelToolbarControls";
 
-type Props = {
-  additionalIcons?: React.ReactNode;
-  backgroundColor?: CSSProperties["backgroundColor"];
-  children?: React.ReactNode;
-  className?: string;
-  isUnknownPanel?: boolean;
-};
-
-const useStyles = makeStyles()((theme) => ({
-  root: {
-    transition: "transform 80ms ease-in-out, opacity 80ms ease-in-out",
-    cursor: "auto",
-    flex: "0 0 auto",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    padding: theme.spacing(0.25, 0.75),
-    display: "flex",
-    minHeight: PANEL_TOOLBAR_MIN_HEIGHT,
-    backgroundColor: theme.palette.background.paper,
-    width: "100%",
-    left: 0,
-    zIndex: theme.zIndex.appBar,
-  },
-}));
-
 // Panel toolbar should be added to any panel that's part of the
 // react-mosaic layout.  It adds a drag handle, remove/replace controls
 // and has a place to add custom controls via it's children property
-export default React.memo<Props>(function PanelToolbar({
+export default React.memo<PanelToolbarProps>(function PanelToolbar({
   additionalIcons,
   backgroundColor,
   children,
   className,
   isUnknownPanel = false,
-}: Props) {
+}: PanelToolbarProps) {
   const { classes, cx } = useStyles();
   const {
     isFullscreen,
     exitFullscreen,
-    config: { [PANEL_TITLE_CONFIG_KEY]: customTitle = undefined } = {},
+    enterFullscreen,
+    config: { [PANEL_TITLE_CONFIG_KEY]: customTitle } = {},
   } = useContext(PanelContext) ?? {};
 
   const panelContext = useContext(PanelContext);
@@ -77,7 +54,7 @@ export default React.memo<Props>(function PanelToolbar({
     return (
       <>
         {additionalIcons}
-        {isFullscreen === true && (
+        {isFullscreen === true ? (
           <ToolbarIconButton
             value="exit-fullscreen"
             title="Exit fullscreen"
@@ -85,10 +62,14 @@ export default React.memo<Props>(function PanelToolbar({
           >
             <FullscreenExitIcon />
           </ToolbarIconButton>
+        ) : (
+          <ToolbarIconButton value="fullscreen" title="fullscreen" onClick={enterFullscreen}>
+            <FullscreenIcon />
+          </ToolbarIconButton>
         )}
       </>
     );
-  }, [additionalIcons, isFullscreen, exitFullscreen]);
+  }, [additionalIcons, isFullscreen, exitFullscreen, enterFullscreen]);
 
   // If we have children then we limit the drag area to the controls. Otherwise the entire
   // toolbar is draggable.
@@ -120,7 +101,7 @@ export default React.memo<Props>(function PanelToolbar({
         ))}
       <PanelToolbarControls
         additionalIcons={additionalIconsWithHelp}
-        isUnknownPanel={!!isUnknownPanel}
+        isUnknownPanel={isUnknownPanel}
         ref={controlsDragRef}
       />
     </header>

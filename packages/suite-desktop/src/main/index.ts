@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -6,8 +6,6 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session } from "electron";
-import fs from "fs";
-import path from "path";
 
 import Logger from "@lichtblick/log";
 import { AppSetting } from "@lichtblick/suite-base/src/AppSetting";
@@ -15,9 +13,13 @@ import { initI18n, sharedI18nObject as i18n } from "@lichtblick/suite-base/src/i
 
 import StudioAppUpdater from "./StudioAppUpdater";
 import StudioWindow from "./StudioWindow";
+import { createNewWindow } from "./createNewWindow";
+import { isFileToOpen } from "./fileUtils";
 import getDevModeIcon from "./getDevModeIcon";
+import { getFilesToOpen } from "./getFilesToOpen";
 import injectFilesToOpen from "./injectFilesToOpen";
 import installChromeExtensions from "./installChromeExtensions";
+import { parseCLIFlags } from "./parseCLIFlags";
 import {
   registerRosPackageProtocolHandlers,
   registerRosPackageProtocolSchemes,
@@ -31,20 +33,10 @@ import {
 
 const log = Logger.getLogger(__filename);
 
-/**
- * Determine whether an item in argv is a file that we should try opening as a data source.
- *
- * Note: in dev we launch electron with `electron .webpack` so we need to filter out things that are not files
- */
-function isFileToOpen(arg: string) {
-  // Anything that isn't a file or directory will throw, we filter those out too
-  try {
-    return fs.statSync(arg).isFile();
-  } catch (err: unknown) {
-    log.error(err);
-    // ignore
-  }
-  return false;
+// This overwrite needs to be done here, before the app is ready, otherwise it will not take effect
+const homeOverride = process.argv.find((arg) => arg.startsWith("--home-dir="));
+if (homeOverride != undefined) {
+  app.setPath("home", homeOverride.split("=")[1]!);
 }
 
 function updateNativeColorScheme() {
@@ -73,6 +65,9 @@ export async function main(): Promise<void> {
   // https://github.com/electron/electron/issues/28422#issuecomment-987504138
   app.commandLine.appendSwitch("enable-experimental-web-platform-features");
 
+  // https://github.com/electron/electron/issues/46538#issuecomment-2808806722
+  app.commandLine.appendSwitch("gtk-version", "3");
+
   const start = Date.now();
   log.info(`${LICHTBLICK_PRODUCT_NAME} ${LICHTBLICK_PRODUCT_VERSION}`);
 
@@ -80,7 +75,7 @@ export async function main(): Promise<void> {
 
   if (!isProduction && (app as Partial<typeof app>).dock != undefined) {
     const devIcon = getDevModeIcon();
-    if (devIcon) {
+    if (app.dock && devIcon) {
       app.dock.setIcon(devIcon);
     }
   }
@@ -97,18 +92,34 @@ export async function main(): Promise<void> {
     return;
   }
 
+  // Check if --force-multiple-windows` is set
+  const forceMultipleWindows = process.argv.some((arg) => arg === "--force-multiple-windows");
+
   // If another instance of the app is already open, this call triggers the "second-instance" event
   // in the original instance and returns false.
+  // In case of forcing multiple instances, we will open a new window and inject the files and deep links manually.
   if (!app.requestSingleInstanceLock()) {
-    log.info(`Another instance of ${LICHTBLICK_PRODUCT_NAME} is already running. Quitting.`);
-    app.quit();
+    if (forceMultipleWindows) {
+      log.info(
+        `An instance of ${LICHTBLICK_PRODUCT_NAME} is already running. Forcing a new window to run in this instance.`,
+      );
+    } else {
+      log.info(`Another instance of ${LICHTBLICK_PRODUCT_NAME} is already running. Quitting.`);
+      app.quit();
+    }
     return;
   }
 
-  // Forward urls/files opened in a second instance to our default handlers so it's as if we opened
-  // them with this instance.
+  // Forward urls/files opened in a second instance to our default handlers so it's as if we opened them with this instance.
+  // In case of forcing multiple instances, we will open a new window and inject the files and deep links manually.
   app.on("second-instance", (_ev, argv, _workingDirectory) => {
     log.debug("Received arguments from second app instance:", argv);
+
+    if (forceMultipleWindows) {
+      log.debug("second-instance: Forcing a new window to run in this instance.");
+      createNewWindow(argv);
+      return;
+    }
 
     // Bring the app to the front
     const someWindow = BrowserWindow.getAllWindows()[0];
@@ -120,7 +131,10 @@ export async function main(): Promise<void> {
       app.emit("open-url", { preventDefault() {} }, link);
     }
 
-    const files = argv.slice(1).filter((arg) => isFileToOpen(arg));
+    const files = argv
+      .slice(1)
+      .filter((arg) => !arg.startsWith("--")) // Filter out flags
+      .filter((arg) => isFileToOpen(arg));
     for (const file of files) {
       app.emit("open-file", { preventDefault() {} }, file);
     }
@@ -139,12 +153,7 @@ export async function main(): Promise<void> {
     }
   }
 
-  // files our app should open - either from user double-click on a supported fileAssociation
-  // or command line arguments.
-  const filesToOpen: string[] = process.argv
-    .slice(1)
-    .map((filePath) => path.resolve(filePath)) // Convert to absolute path, linux has some problems to resolve relative paths
-    .filter(isFileToOpen);
+  const filesToOpen = getFilesToOpen(process.argv);
 
   // indicates the preloader has setup the file input used to inject which files to open
   let preloaderFileInputIsReady = false;
@@ -205,9 +214,14 @@ export async function main(): Promise<void> {
     }
   });
 
+  // Get the command line flags passed to the app when it was launched
+  const parsedCLIFlags = parseCLIFlags(process.argv);
+
   // support preload lookups for the user data path and home directory
   ipcMain.handle("getUserDataPath", () => app.getPath("userData"));
   ipcMain.handle("getHomePath", () => app.getPath("home"));
+
+  ipcMain.handle("getCLIFlags", () => parsedCLIFlags);
 
   // Must be called before app.ready event
   registerRosPackageProtocolSchemes();
@@ -267,7 +281,8 @@ export async function main(): Promise<void> {
       "connect-src": "'self' ws: wss: http: https: package: blob: data: file:",
       "font-src": "'self' data:",
       // Include http in the CSP to allow loading images (i.e. map tiles) from http endpoints like localhost
-      "img-src": "'self' data: https: package: x-foxglove-converted-tiff: http:",
+      // Include blob: to allow loading mesh textures fetched as assets and served via object URLs
+      "img-src": "'self' data: https: package: x-foxglove-converted-tiff: http: blob:",
       "media-src": "'self' data: https: http: blob: file:",
     };
     const cspHeader = Object.entries(contentSecurityPolicy)

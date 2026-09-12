@@ -1,9 +1,13 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
+
+// `global` is a Node.js global. TypeScript 6.0 no longer auto-discovers `@types/node`, so reference
+// it explicitly to keep the global available program-wide.
+/// <reference types="node" />
 
 // logger channel -> logger
 const channels = new Map<string, Logger>();

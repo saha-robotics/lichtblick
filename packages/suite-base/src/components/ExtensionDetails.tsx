@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -7,107 +7,75 @@
 
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import { Button, Link, Tab, Tabs, Typography, Divider } from "@mui/material";
-import { useSnackbar } from "notistack";
-import { useCallback, useState } from "react";
+import DOMPurify from "dompurify";
+import { useState } from "react";
 import { useAsync, useMountedState } from "react-use";
-import { makeStyles } from "tss-react/mui";
 
-import { Immutable } from "@lichtblick/suite";
+import { formatByteSize } from "@lichtblick/den/format";
+import { useStylesExtensionDetails } from "@lichtblick/suite-base/components/ExtensionDetails.style";
+import { InstallButton } from "@lichtblick/suite-base/components/ExtensionsSettings/components/ExtensionActionButton/InstallButton";
+import { UninstallButton } from "@lichtblick/suite-base/components/ExtensionsSettings/components/ExtensionActionButton/UninstallButton";
+import { useExtensionOperations } from "@lichtblick/suite-base/components/ExtensionsSettings/hooks/useExtensionOperations";
+import {
+  ExtensionActionsLabel,
+  ExtensionOperationStatusLabel,
+} from "@lichtblick/suite-base/components/ExtensionsSettings/types";
 import Stack from "@lichtblick/suite-base/components/Stack";
 import TextContent from "@lichtblick/suite-base/components/TextContent";
-import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
-import { useExtensionCatalog } from "@lichtblick/suite-base/context/ExtensionCatalogContext";
-import {
-  ExtensionMarketplaceDetail,
-  useExtensionMarketplace,
-} from "@lichtblick/suite-base/context/ExtensionMarketplaceContext";
-import { AppEvent } from "@lichtblick/suite-base/services/IAnalytics";
-import isDesktopApp from "@lichtblick/suite-base/util/isDesktopApp";
+import { ExtensionDetailsProps, OperationStatus } from "@lichtblick/suite-base/components/types";
+import { useExtensionMarketplace } from "@lichtblick/suite-base/context/ExtensionMarketplaceContext";
+import { isValidUrl } from "@lichtblick/suite-base/util/isValidURL";
 
-type Props = {
-  installed: boolean;
-  extension: Immutable<ExtensionMarketplaceDetail>;
-  onClose: () => void;
-};
-
-const useStyles = makeStyles()((theme) => ({
-  backButton: {
-    marginLeft: theme.spacing(-1.5),
-    marginBottom: theme.spacing(1),
-  },
-  installButton: {
-    minWidth: 100,
-  },
-}));
-
-export function ExtensionDetails({ extension, onClose, installed }: Props): React.ReactElement {
-  const { classes } = useStyles();
+/**
+ * ExtensionDetails component displays detailed information about a specific extension.
+ * It allows users to install, uninstall, and view the README and CHANGELOG of the extension.
+ *
+ * @param {Object} props - The component props.
+ * @param {boolean} props.installed - Indicates if the extension is already installed.
+ * @param {ExtensionMarketplaceDetail} props.extension - The extension details.
+ * @param {Function} props.onClose - Callback function to close the details view.
+ * @returns {React.ReactElement} The rendered component.
+ */
+export function ExtensionDetails({
+  extension,
+  onClose,
+  installed,
+}: Readonly<ExtensionDetailsProps>): React.ReactElement {
+  const { classes } = useStylesExtensionDetails();
   const [isInstalled, setIsInstalled] = useState(installed);
   const [activeTab, setActiveTab] = useState<number>(0);
   const isMounted = useMountedState();
-  const downloadExtension = useExtensionCatalog((state) => state.downloadExtension);
-  const installExtension = useExtensionCatalog((state) => state.installExtension);
-  const uninstallExtension = useExtensionCatalog((state) => state.uninstallExtension);
   const marketplace = useExtensionMarketplace();
-  const { enqueueSnackbar } = useSnackbar();
-  const readmeUrl = extension.readme;
-  const changelogUrl = extension.changelog;
-  const canInstall = extension.foxe != undefined;
-  const canUninstall = extension.namespace !== "org";
+  const readme = extension.readme;
+  const changelog = extension.changelog;
 
-  const { value: readmeContent } = useAsync(
-    async () => (readmeUrl != undefined ? await marketplace.getMarkdown(readmeUrl) : ""),
-    [marketplace, readmeUrl],
-  );
-  const { value: changelogContent } = useAsync(
-    async () => (changelogUrl != undefined ? await marketplace.getMarkdown(changelogUrl) : ""),
-    [marketplace, changelogUrl],
-  );
-
-  const analytics = useAnalytics();
-
-  const install = useCallback(async () => {
-    if (!isDesktopApp()) {
-      enqueueSnackbar("Download the desktop app to use marketplace extensions.", {
-        variant: "error",
-      });
-      return;
-    }
-
-    const url = extension.foxe;
-    try {
-      if (url == undefined) {
-        throw new Error(`Cannot install extension ${extension.id}, "foxe" URL is missing`);
-      }
-      const data = await downloadExtension(url);
-      await installExtension("local", data);
+  const { handleInstall, handleUninstall, operationStatus } = useExtensionOperations({
+    onInstallSuccess: () => {
       if (isMounted()) {
         setIsInstalled(true);
-        void analytics.logEvent(AppEvent.EXTENSION_INSTALL, { type: extension.id });
       }
-    } catch (e: unknown) {
-      const err = e as Error;
-      enqueueSnackbar(`Failed to download extension ${extension.id}. ${err.message}`, {
-        variant: "error",
-      });
-    }
-  }, [
-    analytics,
-    downloadExtension,
-    enqueueSnackbar,
-    extension.foxe,
-    extension.id,
-    installExtension,
-    isMounted,
-  ]);
+    },
+    onUninstallSuccess: () => {
+      if (isMounted()) {
+        setIsInstalled(false);
+      }
+    },
+  });
 
-  const uninstall = useCallback(async () => {
-    await uninstallExtension(extension.namespace ?? "local", extension.id);
-    if (isMounted()) {
-      setIsInstalled(false);
-      void analytics.logEvent(AppEvent.EXTENSION_UNINSTALL, { type: extension.id });
-    }
-  }, [analytics, extension.id, extension.namespace, isMounted, uninstallExtension]);
+  const { value: readmeContent } = useAsync(
+    async () =>
+      readme != undefined && isValidUrl(readme)
+        ? await marketplace.getMarkdown(readme)
+        : DOMPurify.sanitize(readme ?? "No readme found."),
+    [marketplace, readme],
+  );
+  const { value: changelogContent } = useAsync(
+    async () =>
+      changelog != undefined && isValidUrl(changelog)
+        ? await marketplace.getMarkdown(changelog)
+        : DOMPurify.sanitize(changelog ?? "No changelog found."),
+    [marketplace, changelog],
+  );
 
   return (
     <Stack fullHeight flex="auto" gap={1}>
@@ -144,6 +112,11 @@ export function ExtensionDetails({ extension, onClose, installed }: Props): Reac
             <Typography variant="caption" color="text.secondary">
               {extension.license}
             </Typography>
+            {extension.size != undefined && (
+              <Typography variant="caption" color="text.secondary">
+                {formatByteSize(extension.size)}
+              </Typography>
+            )}
           </Stack>
           <Typography variant="subtitle2" gutterBottom>
             {extension.publisher}
@@ -152,30 +125,26 @@ export function ExtensionDetails({ extension, onClose, installed }: Props): Reac
             {extension.description}
           </Typography>
         </Stack>
-        {isInstalled && canUninstall ? (
-          <Button
-            className={classes.installButton}
-            size="small"
-            key="uninstall"
-            color="inherit"
-            variant="contained"
-            onClick={uninstall}
-          >
-            Uninstall
-          </Button>
+        {isInstalled ? (
+          <UninstallButton
+            extension={extension}
+            onAction={handleUninstall}
+            isOperating={operationStatus !== OperationStatus.IDLE}
+            operationStatus={operationStatus}
+            stopPropagation
+            label={ExtensionActionsLabel.UNINSTALL}
+            loadingLabel={ExtensionOperationStatusLabel.UNINSTALLING}
+          />
         ) : (
-          canInstall && (
-            <Button
-              className={classes.installButton}
-              size="small"
-              key="install"
-              color="inherit"
-              variant="contained"
-              onClick={install}
-            >
-              Install
-            </Button>
-          )
+          <InstallButton
+            extension={extension}
+            onAction={handleInstall}
+            isOperating={operationStatus !== OperationStatus.IDLE}
+            operationStatus={operationStatus}
+            stopPropagation
+            label={ExtensionActionsLabel.INSTALL}
+            loadingLabel={ExtensionOperationStatusLabel.INSTALLING}
+          />
         )}
       </Stack>
 

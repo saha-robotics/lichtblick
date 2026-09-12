@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -16,16 +16,16 @@
 import { Link, Typography } from "@mui/material";
 import { t } from "i18next";
 import { useSnackbar } from "notistack";
-import { extname } from "path";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { makeStyles } from "tss-react/mui";
 
 import Logger from "@lichtblick/log";
 import { AppSetting } from "@lichtblick/suite-base/AppSetting";
+import { useStyles } from "@lichtblick/suite-base/Workspace.style";
+import McapBundleAPI from "@lichtblick/suite-base/api/mcapBundle/McapBundleAPI";
 import AccountSettings from "@lichtblick/suite-base/components/AccountSettingsSidebar/AccountSettings";
-import { AppBar, AppBarProps } from "@lichtblick/suite-base/components/AppBar";
-import { CustomWindowControlsProps } from "@lichtblick/suite-base/components/AppBar/CustomWindowControls";
+import { AlertsList } from "@lichtblick/suite-base/components/AlertList/AlertsList";
+import { AppBar } from "@lichtblick/suite-base/components/AppBar";
 import {
   DataSourceDialog,
   DataSourceDialogItem,
@@ -45,7 +45,6 @@ import { PanelCatalog } from "@lichtblick/suite-base/components/PanelCatalog";
 import PanelLayout from "@lichtblick/suite-base/components/PanelLayout";
 import PanelSettings from "@lichtblick/suite-base/components/PanelSettings";
 import PlaybackControls from "@lichtblick/suite-base/components/PlaybackControls";
-import { ProblemsList } from "@lichtblick/suite-base/components/ProblemsList";
 import RemountOnValueChange from "@lichtblick/suite-base/components/RemountOnValueChange";
 import { SidebarContent } from "@lichtblick/suite-base/components/SidebarContent";
 import Sidebars from "@lichtblick/suite-base/components/Sidebars";
@@ -59,6 +58,7 @@ import { SyncAdapters } from "@lichtblick/suite-base/components/SyncAdapters";
 import { TopicList } from "@lichtblick/suite-base/components/TopicList";
 import VariablesList from "@lichtblick/suite-base/components/VariablesList";
 import { WorkspaceDialogs } from "@lichtblick/suite-base/components/WorkspaceDialogs";
+import { AllowedFileExtensions } from "@lichtblick/suite-base/constants/allowedFileExtensions";
 import { useAppContext } from "@lichtblick/suite-base/context/AppContext";
 import {
   LayoutState,
@@ -69,7 +69,7 @@ import {
   useCurrentUserType,
 } from "@lichtblick/suite-base/context/CurrentUserContext";
 import { EventsStore, useEvents } from "@lichtblick/suite-base/context/EventsContext";
-import { useExtensionCatalog } from "@lichtblick/suite-base/context/ExtensionCatalogContext";
+import { useLayoutManager } from "@lichtblick/suite-base/context/LayoutManagerContext";
 import { usePlayerSelection } from "@lichtblick/suite-base/context/PlayerSelectionContext";
 import {
   LeftSidebarItemKey,
@@ -81,35 +81,29 @@ import {
 } from "@lichtblick/suite-base/context/Workspace/WorkspaceContext";
 import { useAppConfigurationValue } from "@lichtblick/suite-base/hooks";
 import useAddPanel from "@lichtblick/suite-base/hooks/useAddPanel";
+import useAlertCount from "@lichtblick/suite-base/hooks/useAlertCount";
 import { useDefaultWebLaunchPreference } from "@lichtblick/suite-base/hooks/useDefaultWebLaunchPreference";
 import useElectronFilesToOpen from "@lichtblick/suite-base/hooks/useElectronFilesToOpen";
+import { useHandleFiles } from "@lichtblick/suite-base/hooks/useHandleFiles";
+import { useLayoutTransfer } from "@lichtblick/suite-base/hooks/useLayoutTransfer";
+import useSeekTimeFromCLI from "@lichtblick/suite-base/hooks/useSeekTimeFromCLI";
+import { useStructureItemsStoreManager } from "@lichtblick/suite-base/panels/Plot/hooks/useStructureItemsStoreManager";
 import { PlayerPresence } from "@lichtblick/suite-base/players/types";
 import { PanelStateContextProvider } from "@lichtblick/suite-base/providers/PanelStateContextProvider";
 import WorkspaceContextProvider from "@lichtblick/suite-base/providers/WorkspaceContextProvider";
 import ICONS from "@lichtblick/suite-base/theme/icons";
+import { InjectedSidebarItem, Namespace, WorkspaceProps } from "@lichtblick/suite-base/types";
 import { parseAppURLState } from "@lichtblick/suite-base/util/appURLState";
+import useBroadcast from "@lichtblick/suite-base/util/broadcast/useBroadcast";
 import isDesktopApp from "@lichtblick/suite-base/util/isDesktopApp";
 
 import { useWorkspaceActions } from "./context/Workspace/useWorkspaceActions";
+import { severityToBadgeColor } from "./utils";
 
 const log = Logger.getLogger(__filename);
 
-const useStyles = makeStyles()({
-  container: {
-    width: "100%",
-    height: "100%",
-    display: "flex",
-    flexDirection: "column",
-    position: "relative",
-    flex: "1 1 100%",
-    outline: "none",
-    overflow: "hidden",
-  },
-});
-
 const selectedLayoutIdSelector = (state: LayoutState) => state.selectedLayout?.id;
 
-type InjectedSidebarItem = [SidebarItemKey, SidebarItem];
 function isInjectedSidebarItem(
   item: [string, { iconName?: string; title: string }],
 ): item is InjectedSidebarItem {
@@ -120,19 +114,9 @@ function isInjectedSidebarItem(
   );
 }
 
-type WorkspaceProps = CustomWindowControlsProps & {
-  deepLinks?: readonly string[];
-  appBarLeftInset?: number;
-  onAppBarDoubleClick?: () => void;
-  // eslint-disable-next-line react/no-unused-prop-types
-  disablePersistenceForStorybook?: boolean;
-  AppBarComponent?: (props: AppBarProps) => React.JSX.Element;
-};
-
 const selectPlayerPresence = ({ playerState }: MessagePipelineContext) => playerState.presence;
 const selectPlayerIsPresent = ({ playerState }: MessagePipelineContext) =>
   playerState.presence !== PlayerPresence.NOT_PRESENT;
-const selectPlayerProblems = ({ playerState }: MessagePipelineContext) => playerState.problems;
 const selectIsPlaying = (ctx: MessagePipelineContext) =>
   ctx.playerState.activeData?.isPlaying === true;
 const selectPause = (ctx: MessagePipelineContext) => ctx.pausePlayback;
@@ -157,7 +141,7 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(ReactNull);
   const { availableSources, selectSource } = usePlayerSelection();
   const playerPresence = useMessagePipeline(selectPlayerPresence);
-  const playerProblems = useMessagePipeline(selectPlayerProblems);
+  const { alertCount, highestSeverity } = useAlertCount();
 
   const dataSourceDialog = useWorkspaceStore(selectWorkspaceDataSourceDialog);
   const leftSidebarItem = useWorkspaceStore(selectWorkspaceLeftSidebarItem);
@@ -168,11 +152,38 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
   const rightSidebarSize = useWorkspaceStore(selectWorkspaceRightSidebarSize);
   const { AppBarComponent = AppBar } = props;
 
+  const play = useMessagePipeline(selectPlay);
+  const playUntil = useMessagePipeline(selectPlayUntil);
+  const pause = useMessagePipeline(selectPause);
+  const seek = useMessagePipeline(selectSeek);
+  const isPlaying = useMessagePipeline(selectIsPlaying);
+  const getMessagePipeline = useMessagePipelineGetter();
+  const getTimeInfo = useCallback(
+    () => getMessagePipeline().playerState.activeData ?? {},
+    [getMessagePipeline],
+  );
+
+  const layoutManager = useLayoutManager();
+  const { parseAndInstallLayout } = useLayoutTransfer();
+
+  const { enqueueSnackbar } = useSnackbar();
   const { dialogActions, sidebarActions } = useWorkspaceActions();
+  const { handleFiles } = useHandleFiles({
+    availableSources,
+    selectSource,
+    isPlaying,
+    playerEvents: { play, pause },
+  });
+
+  // Store stable reference to avoid re-running effects unnecessarily
+  const handleFilesRef = useRef<typeof handleFiles>(handleFiles);
+  useLayoutEffect(() => {
+    handleFilesRef.current = handleFiles;
+  }, [handleFiles]);
 
   // file types we support for drag/drop
   const allowedDropExtensions = useMemo(() => {
-    const extensions = [".foxe"];
+    const extensions: string[] = [AllowedFileExtensions.FOXE, AllowedFileExtensions.JSON];
     for (const source of availableSources) {
       if (source.type === "file" && source.supportedFileTypes) {
         extensions.push(...source.supportedFileTypes);
@@ -188,6 +199,8 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
   const currentUserType = useCurrentUserType();
 
   useDefaultWebLaunchPreference();
+
+  useStructureItemsStoreManager();
 
   const [enableDebugMode = false] = useAppConfigurationValue<boolean>(AppSetting.SHOW_DEBUG_PANELS);
 
@@ -227,109 +240,43 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
     }
   }, []);
 
-  const { enqueueSnackbar } = useSnackbar();
-
-  const installExtension = useExtensionCatalog((state) => state.installExtension);
-
-  const openHandle = useCallback(
-    async (
-      handle: FileSystemFileHandle /* foxglove-depcheck-used: @types/wicg-file-system-access */,
-    ) => {
-      log.debug("open handle", handle);
-      const file = await handle.getFile();
-
-      if (file.name.endsWith(".foxe")) {
-        // Extension installation
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          const data = new Uint8Array(arrayBuffer);
-          const extension = await installExtension("local", data);
-          enqueueSnackbar(`Installed extension ${extension.id}`, { variant: "success" });
-        } catch (e: unknown) {
-          const err = e as Error;
-          log.error(err);
-          enqueueSnackbar(`Failed to install extension ${file.name}: ${err.message}`, {
-            variant: "error",
-          });
-        }
-      }
-
-      // Look for a source that supports the file extensions
-      const matchedSource = availableSources.find((source) => {
-        const ext = extname(file.name);
-        return source.supportedFileTypes?.includes(ext);
-      });
-      if (matchedSource) {
-        selectSource(matchedSource.id, { type: "file", handle });
-      }
-    },
-    [availableSources, enqueueSnackbar, installExtension, selectSource],
-  );
-
-  const openFiles = useCallback(
-    async (files: File[]) => {
-      const otherFiles: File[] = [];
-      log.debug("open files", files);
-
-      for (const file of files) {
-        if (file.name.endsWith(".foxe")) {
-          // Extension installation
-          try {
-            const arrayBuffer = await file.arrayBuffer();
-            const data = new Uint8Array(arrayBuffer);
-            const extension = await installExtension("local", data);
-            enqueueSnackbar(`Installed extension ${extension.id}`, { variant: "success" });
-          } catch (err: unknown) {
-            log.error(err);
-            enqueueSnackbar(`Failed to install extension ${file.name}: ${(err as Error).message}`, {
-              variant: "error",
-            });
-          }
-        } else {
-          otherFiles.push(file);
-        }
-      }
-
-      if (otherFiles.length > 0) {
-        // Look for a source that supports the dragged file extensions
-        for (const source of availableSources) {
-          const filteredFiles = otherFiles.filter((file) => {
-            const ext = extname(file.name);
-            return source.supportedFileTypes?.includes(ext);
-          });
-
-          // select the first source that has files that match the supported extensions
-          if (filteredFiles.length > 0) {
-            selectSource(source.id, { type: "file", files: otherFiles });
-            break;
-          }
-        }
-      }
-    },
-    [availableSources, enqueueSnackbar, installExtension, selectSource],
-  );
-
   // files the main thread told us to open
   const filesToOpen = useElectronFilesToOpen();
+
   useEffect(() => {
-    if (filesToOpen) {
-      void openFiles(Array.from(filesToOpen));
+    handleFilesRef.current = handleFiles;
+  }, [handleFiles]);
+
+  useEffect(() => {
+    if (filesToOpen && filesToOpen.length > 0) {
+      void handleFilesRef.current(Array.from(filesToOpen));
     }
-  }, [filesToOpen, openFiles]);
+  }, [filesToOpen]);
 
   const dropHandler = useCallback(
-    (event: { files?: File[]; handles?: FileSystemFileHandle[] }) => {
-      const handle = event.handles?.[0];
-      // When selecting sources with handles we can only select with a single handle since we haven't
-      // written the code to store multiple handles for recents. When there are multiple handles, we
-      // fall back to opening regular files.
-      if (handle && event.handles?.length === 1) {
-        void openHandle(handle);
-      } else if (event.files) {
-        void openFiles(event.files);
+    async ({
+      files,
+      handles,
+      namespace = "local",
+    }: {
+      files?: File[];
+      handles?: FileSystemFileHandle[];
+      namespace?: Namespace;
+    }) => {
+      const filesArray: File[] = [];
+
+      if (handles?.length === 1) {
+        const fileHandle = handles[0];
+        if (fileHandle) {
+          filesArray.push(await fileHandle.getFile());
+        }
+      } else if (files?.length != undefined) {
+        filesArray.push(...files);
       }
+
+      void handleFiles(filesArray, namespace);
     },
-    [openFiles, openHandle],
+    [handleFiles],
   );
 
   // Since the _component_ field of a sidebar item entry is a component and accepts no additional
@@ -358,8 +305,8 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
           title: "Data source",
           component: DataSourceSidebarItem,
           badge:
-            playerProblems && playerProblems.length > 0
-              ? { count: playerProblems.length }
+            alertCount > 0
+              ? { count: alertCount, color: severityToBadgeColor(highestSeverity) }
               : undefined,
         },
       ],
@@ -428,7 +375,8 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
     return [topItems, bottomItems];
   }, [
     DataSourceSidebarItem,
-    playerProblems,
+    alertCount,
+    highestSeverity,
     enableNewTopNav,
     enableStudioLogsSidebar,
     AppContextLayoutBrowser,
@@ -445,23 +393,20 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
       ["panel-settings", { title: "Panel", component: PanelSettingsSidebar }],
       ["topics", { title: "Topics", component: TopicList }],
       [
-        "problems",
+        "alerts",
         {
-          title: "Problems",
-          component: ProblemsList,
+          title: "Alerts",
+          component: AlertsList,
           badge:
-            playerProblems && playerProblems.length > 0
-              ? {
-                  count: playerProblems.length,
-                  color: "error",
-                }
+            alertCount > 0
+              ? { count: alertCount, color: severityToBadgeColor(highestSeverity) }
               : undefined,
         },
       ],
       ["layouts", { title: "Layouts", component: LayoutBrowser }],
     ]);
     return items;
-  }, [PanelSettingsSidebar, playerProblems]);
+  }, [PanelSettingsSidebar, alertCount, highestSeverity]);
 
   const rightSidebarItems = useMemo(() => {
     const items = new Map<RightSidebarItemKey, SidebarItem>([
@@ -554,32 +499,137 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
     };
   }, [dialogActions.dataSource, dialogActions.openFile, sidebarActions.left, sidebarActions.right]);
 
-  const play = useMessagePipeline(selectPlay);
-  const playUntil = useMessagePipeline(selectPlayUntil);
-  const pause = useMessagePipeline(selectPause);
-  const seek = useMessagePipeline(selectSeek);
-  const isPlaying = useMessagePipeline(selectIsPlaying);
-  const getMessagePipeline = useMessagePipelineGetter();
-  const getTimeInfo = useCallback(
-    () => getMessagePipeline().playerState.activeData ?? {},
-    [getMessagePipeline],
-  );
-
   const targetUrlState = useMemo(() => {
     const deepLinks = props.deepLinks ?? [];
     return deepLinks[0] ? parseAppURLState(new URL(deepLinks[0])) : undefined;
   }, [props.deepLinks]);
 
-  const [unappliedSourceArgs, setUnappliedSourceArgs] = useState(
-    targetUrlState ? { ds: targetUrlState.ds, dsParams: targetUrlState.dsParams } : undefined,
+  const [unappliedSourceArgs, setUnappliedSourceArgs] = useState<
+    | {
+        ds: string | undefined;
+        dsParams: Record<string, string> | undefined;
+        sourceMetadata?: Record<string, unknown>[];
+        layoutUrl?: string;
+      }
+    | undefined
+  >(
+    targetUrlState && !targetUrlState.mcapBundleId
+      ? {
+          ds: targetUrlState.ds,
+          dsParams: targetUrlState.dsParams,
+          layoutUrl: targetUrlState.layoutUrl,
+        }
+      : undefined,
   );
 
+  // Resolve MCAP bundle URLs when mcapBundleId is present.
+  useEffect(() => {
+    const mcapBundleId = targetUrlState?.mcapBundleId;
+    if (!mcapBundleId) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    void (async () => {
+      try {
+        const mcaps = await McapBundleAPI.getMcapBundle(mcapBundleId, signal);
+        if (mcaps.length === 0) {
+          enqueueSnackbar("Session contains no data sources", { variant: "error" });
+          return;
+        }
+
+        const urls = mcaps.map((mcap) => mcap.url);
+        setUnappliedSourceArgs({
+          ds: "remote-file",
+          dsParams: { url: urls.join(",") },
+          sourceMetadata: mcaps.map((mcap) => mcap.metadata),
+        });
+      } catch (error) {
+        if (signal.aborted) {
+          return;
+        }
+        log.error("Failed to fetch session MCAP URLs:", error);
+        enqueueSnackbar("Failed to load session data sources", { variant: "error" });
+      }
+    })();
+
+    return () => {
+      controller.abort();
+    };
+  }, [targetUrlState?.mcapBundleId, enqueueSnackbar]);
+
   const selectEvent = useEvents(selectSelectEvent);
+
+  const fetchLayoutFromUrl = useCallback(
+    async (layoutUrl: string) => {
+      if (layoutUrl === "") {
+        return;
+      }
+
+      // Validate URL protocol - only http/https are allowed for security
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(layoutUrl);
+      } catch {
+        enqueueSnackbar("Invalid layout URL", { variant: "error" });
+        return;
+      }
+
+      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+        enqueueSnackbar("Layout URL must use http or https protocol", { variant: "error" });
+        return;
+      }
+
+      // Use origin+pathname for logging/naming to avoid leaking credentials from query params
+      const safeUrlLabel = `${parsedUrl.origin}${parsedUrl.pathname}`;
+
+      try {
+        const response = await fetch(layoutUrl);
+        if (!response.ok) {
+          log.error(`Failed to fetch layout: ${safeUrlLabel} (status ${response.status})`);
+          enqueueSnackbar(`Failed to load layout (HTTP ${response.status})`, { variant: "error" });
+          return;
+        }
+
+        // Derive filename from sanitized pathname (no credentials in name)
+        const rawFilename = parsedUrl.pathname.split("/").pop();
+        const filename =
+          rawFilename != undefined && rawFilename !== "" ? rawFilename : "layout.json";
+        const dotIndex = filename.lastIndexOf(".");
+        const layoutName = dotIndex > 0 ? filename.slice(0, dotIndex) : filename;
+
+        // Find existing layouts with the same name before saving (safe deduplication)
+        const existingLayouts = await layoutManager.getLayouts();
+        const matchingLayouts = existingLayouts.filter((layout) => layout.name === layoutName);
+
+        // Delegate JSON parsing, saving, and selection to parseAndInstallLayout
+        const text = await response.text();
+        const file = new File([text], filename, { type: "application/json" });
+        const newLayout = await parseAndInstallLayout(file, "local");
+
+        // Only delete old layouts after successful save to avoid data loss
+        if (newLayout) {
+          for (const layout of matchingLayouts) {
+            await layoutManager.deleteLayout({ id: layout.id });
+          }
+        }
+      } catch (error) {
+        log.error(`Could not load layout from ${safeUrlLabel}`, error);
+        enqueueSnackbar("Failed to load layout from URL", { variant: "error" });
+      }
+    },
+    [layoutManager, parseAndInstallLayout, enqueueSnackbar],
+  );
+
   // Load data source from URL.
   useEffect(() => {
     if (!unappliedSourceArgs) {
       return;
     }
+
+    let shouldUpdate = false;
 
     // Apply any available data source args
     if (unappliedSourceArgs.ds) {
@@ -587,11 +637,22 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
       selectSource(unappliedSourceArgs.ds, {
         type: "connection",
         params: unappliedSourceArgs.dsParams,
+        sourceMetadata: unappliedSourceArgs.sourceMetadata,
       });
       selectEvent(unappliedSourceArgs.dsParams?.eventId);
-      setUnappliedSourceArgs({ ds: undefined, dsParams: undefined });
+      shouldUpdate = true;
     }
-  }, [selectEvent, selectSource, unappliedSourceArgs, setUnappliedSourceArgs]);
+    // Apply any available layout URL
+    if (unappliedSourceArgs.layoutUrl) {
+      fetchLayoutFromUrl(unappliedSourceArgs.layoutUrl).catch((error: unknown) => {
+        log.error("Failed to fetch layout from URL", error);
+      });
+      shouldUpdate = true;
+    }
+    if (shouldUpdate) {
+      setUnappliedSourceArgs({ ds: undefined, dsParams: undefined, layoutUrl: undefined });
+    }
+  }, [fetchLayoutFromUrl, selectEvent, selectSource, unappliedSourceArgs, setUnappliedSourceArgs]);
 
   const [unappliedTime, setUnappliedTime] = useState(
     targetUrlState ? { time: targetUrlState.time } : undefined,
@@ -611,6 +672,8 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
     seek(unappliedTime.time);
     setUnappliedTime({ time: undefined });
   }, [playerPresence, seek, unappliedTime]);
+
+  useSeekTimeFromCLI();
 
   const appBar = useMemo(
     () => (
@@ -640,6 +703,13 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
     ],
   );
 
+  useBroadcast({
+    play,
+    pause,
+    seek,
+    playUntil,
+  });
+
   return (
     <PanelStateContextProvider>
       {dataSourceDialog.open && <DataSourceDialog />}
@@ -666,13 +736,13 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
         >
           {/* To ensure no stale player state remains, we unmount all panels when players change */}
           <RemountOnValueChange value={playerId}>
-            <Stack>
+            <Stack data-testid="workspace-panels">
               <PanelLayout />
             </Stack>
           </RemountOnValueChange>
         </Sidebars>
         {play && pause && seek && (
-          <div style={{ flexShrink: 0 }}>
+          <div style={{ flexShrink: 0 }} data-testid="playback-controls">
             <PlaybackControls
               play={play}
               pause={pause}

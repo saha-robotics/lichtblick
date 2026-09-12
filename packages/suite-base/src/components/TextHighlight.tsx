@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -31,10 +31,7 @@ type Props = {
   searchText?: string;
 };
 
-export default function TextHighlight({
-  targetStr = "",
-  searchText = "",
-}: Props): React.JSX.Element {
+export default function TextHighlight({ targetStr, searchText = "" }: Props): React.JSX.Element {
   const { classes } = useStyles();
 
   if (searchText.length === 0) {
@@ -43,7 +40,7 @@ export default function TextHighlight({
 
   const match = fuzzySort.single(searchText, targetStr);
   const result = match
-    ? fuzzySort.highlight(match, "<span class='TextHighlight-highlight'>", "</span>")
+    ? match.highlight("<span class='TextHighlight-highlight'>", "</span>")
     : undefined;
 
   return (

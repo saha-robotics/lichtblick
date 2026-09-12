@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -8,9 +8,9 @@
 import { t } from "i18next";
 import * as _ from "lodash-es";
 import * as THREE from "three";
-import { Line2 } from "three/examples/jsm/lines/Line2";
-import { LineGeometry } from "three/examples/jsm/lines/LineGeometry";
-import { LineMaterial } from "three/examples/jsm/lines/LineMaterial";
+import { Line2 } from "three/examples/jsm/lines/Line2.js";
+import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 
 import {
   Immutable,
@@ -21,9 +21,6 @@ import {
 import type { RosValue } from "@lichtblick/suite-base/players/types";
 import { Label } from "@lichtblick/three-text";
 
-import { Axis, AXIS_LENGTH } from "./Axis";
-import { DEFAULT_LABEL_SCALE_FACTOR } from "./SceneSettings";
-import { makeLinePickingMaterial } from "./markers/materials";
 import type { IRenderer, RendererConfig } from "../IRenderer";
 import { BaseUserData, Renderable } from "../Renderable";
 import { SceneExtension } from "../SceneExtension";
@@ -31,6 +28,9 @@ import { SettingsTreeEntry } from "../SettingsManager";
 import { getLuminance, stringToRgb } from "../color";
 import { BaseSettings, fieldSize, PRECISION_DEGREES, PRECISION_DISTANCE } from "../settings";
 import { CoordinateFrame, Duration, makePose, MAX_DURATION, Transform } from "../transforms";
+import { Axis, AXIS_LENGTH } from "./Axis";
+import { DEFAULT_LABEL_SCALE_FACTOR } from "./SceneSettings";
+import { makeLinePickingMaterial } from "./markers/materials";
 
 export type LayerSettingsTransform = BaseSettings & {
   xyzOffset: Readonly<[number | undefined, number | undefined, number | undefined]>;
@@ -192,9 +192,31 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
           enablePreloading: {
             label: t("threeDee:enablePreloading"),
             input: "boolean",
-            value: config.scene.transforms?.enablePreloading ?? true,
+            value: config.scene.transforms?.enablePreloading ?? false,
+            tooltip: t("threeDee:enablePreloadingTooltip"),
+          },
+          maxPreloadMessages: {
+            label: t("threeDee:maxPreloadMessages"),
+            input: "number",
+            min: 1000,
+            max: 50000,
+            step: 1000,
+            value: config.scene.transforms?.maxPreloadMessages ?? 10000,
+            tooltip: t("threeDee:maxPreloadMessagesTooltip"),
+            disabled: !(config.scene.transforms?.enablePreloading ?? false),
           },
         },
+        actions:
+          config.scene.transforms?.enablePreloading === true
+            ? [
+                {
+                  id: "clear-preload-buffer",
+                  type: "action",
+                  label: t("threeDee:clearPreloadBuffer"),
+                  display: "menu",
+                },
+              ]
+            : undefined,
       },
     };
 
@@ -352,6 +374,9 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
   }
 
   public override handleSettingsAction = (action: SettingsTreeAction): void => {
+    if (action.action === "reorder-node") {
+      return;
+    }
     const path = action.payload.path;
 
     // eslint-disable-next-line @lichtblick/no-boolean-parameters
@@ -364,9 +389,7 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
         for (const frameId of this.renderables.keys()) {
           const frameKeySanitized = frameId === "settings" ? "$settings" : `frame:${frameId}`;
           let draftTransforms = draft.transforms[frameKeySanitized];
-          if (!draftTransforms) {
-            draftTransforms = {};
-          }
+          draftTransforms ??= {};
           draftTransforms = { ...draftTransforms, visible: value };
           draft.transforms[frameKeySanitized] = draftTransforms;
         }
@@ -382,6 +405,9 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
       } else if (action.payload.id === "hide-all") {
         // Hide all frames
         toggleFrameVisibility(false);
+      } else if (action.payload.id === "clear-preload-buffer") {
+        // Clear preloaded transform messages
+        this.renderer.emit("clearPreloadBuffer", this.renderer);
       }
       return;
     }
@@ -419,9 +445,7 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
       const frameId = frameKey.replace(/^frame:/, "");
       const renderable = this.renderables.get(frameId);
       if (renderable) {
-        const settings = this.renderer.config.transforms[frameKey] as
-          | Partial<LayerSettingsTransform>
-          | undefined;
+        const settings = this.renderer.config.transforms[frameKey];
         renderable.userData.settings = this.#getRenderableSettingsWithDefaults(settings ?? {});
 
         this.#updateFrameAxis(renderable);
@@ -476,7 +500,7 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
 
     // Set the initial settings from default values merged with any user settings
     const frameKey = `frame:${frameId}`;
-    const userSettings = config.transforms[frameKey] as Partial<LayerSettingsTransform> | undefined;
+    const userSettings = config.transforms[frameKey];
     const settings = this.#getRenderableSettingsWithDefaults(userSettings ?? {});
 
     // Parent line

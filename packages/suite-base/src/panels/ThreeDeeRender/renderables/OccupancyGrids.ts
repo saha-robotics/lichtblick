@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -210,9 +210,7 @@ export class OccupancyGrids extends SceneExtension<OccupancyGridRenderable> {
     const renderable = this.renderables.get(topicName);
     if (renderable) {
       const prevTransparent = occupancyGridHasTransparency(renderable.userData.settings);
-      const settings = this.renderer.config.topics[topicName] as
-        | Partial<LayerSettingsOccupancyGrid>
-        | undefined;
+      const settings = this.renderer.config.topics[topicName];
       renderable.userData.settings = { ...DEFAULT_SETTINGS, ...settings };
 
       // Check if the transparency changed and we need to create a new material
@@ -239,9 +237,7 @@ export class OccupancyGrids extends SceneExtension<OccupancyGridRenderable> {
     let renderable = this.renderables.get(topic);
     if (!renderable) {
       // Set the initial settings from default values merged with any user settings
-      const userSettings = this.renderer.config.topics[topic] as
-        | Partial<LayerSettingsOccupancyGrid>
-        | undefined;
+      const userSettings = this.renderer.config.topics[topic];
       const settings = { ...DEFAULT_SETTINGS, ...userSettings };
 
       const texture = createTexture(occupancyGrid);
@@ -536,28 +532,20 @@ function paletteColorCached(
   let palette: [number, number, number, number][] | undefined;
   switch (paletteColorMode) {
     case "costmap":
-      if (!costmapPalette) {
-        costmapPalette = createCostmapPalette();
-      }
+      costmapPalette ??= createCostmapPalette();
       palette = costmapPalette;
       break;
     case "map":
-      if (!mapPalette) {
-        mapPalette = createMapPalette();
-      }
+      mapPalette ??= createMapPalette();
       palette = mapPalette;
       break;
     case "raw":
-      if (!rawPalette) {
-        rawPalette = createRawPalette();
-      }
+      rawPalette ??= createRawPalette();
       palette = rawPalette;
       break;
     default:
       // Default to raw palette if unknown colormode, the user will have an error already in the settings
-      if (!rawPalette) {
-        rawPalette = createRawPalette();
-      }
+      rawPalette ??= createRawPalette();
       palette = rawPalette;
   }
 

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -12,8 +12,8 @@ import path from "path";
 import { Configuration, WebpackPluginInstance } from "webpack";
 import type { Configuration as WebpackDevServerConfiguration } from "webpack-dev-server";
 
-import type { WebpackArgv } from "@lichtblick/suite-base/WebpackArgv";
-import { makeConfig } from "@lichtblick/suite-base/webpack";
+import type { WebpackArgv } from "../packages/suite-base/WebpackArgv";
+import { makeConfig } from "../packages/suite-base/webpack";
 
 interface WebpackConfiguration extends Configuration {
   devServer?: WebpackDevServerConfiguration;

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -7,18 +7,12 @@
 
 import { assertNever } from "@lichtblick/suite-base/util/assertNever";
 
-import { Rule } from "./types";
+import { IndicatorRule, RawValueIndicator } from "./types";
 
 export function getMatchingRule(
-  rawValue:
-    | undefined
-    | boolean
-    | bigint
-    | number
-    | string
-    | { data?: boolean | bigint | number | string },
-  rules: readonly Rule[],
-): Rule | undefined {
+  rawValue: RawValueIndicator,
+  rules: readonly IndicatorRule[],
+): IndicatorRule | undefined {
   const value = typeof rawValue === "object" ? rawValue.data : rawValue;
   if (value == undefined) {
     return undefined;

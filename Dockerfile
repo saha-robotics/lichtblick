@@ -1,5 +1,5 @@
 # Build stage
-FROM node:16 AS build
+FROM node:22 AS build
 WORKDIR /src
 COPY . ./
 
@@ -13,8 +13,7 @@ FROM caddy:2.5.2-alpine
 WORKDIR /src
 COPY --from=build /src/web/.webpack ./
 
-EXPOSE 80
-EXPOSE 443
+EXPOSE 8080
 
 COPY <<EOF /entrypoint.sh
 # Optionally override the default layout with one provided via bind mount
@@ -29,7 +28,5 @@ echo "\${index_html/"\$replace_pattern"/\$replace_value}" > index.html
 exec "\$@"
 EOF
 
-COPY Caddyfile /etc/caddy/Caddyfile
-
 ENTRYPOINT ["/bin/sh", "/entrypoint.sh"]
-CMD ["caddy", "start", "--config", "/etc/caddy/Caddyfile"]
+CMD ["caddy", "file-server", "--listen", ":8080"]

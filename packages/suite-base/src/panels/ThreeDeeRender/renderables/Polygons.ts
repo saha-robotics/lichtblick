@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -9,7 +9,6 @@ import { toNanoSec } from "@lichtblick/rostime";
 import { SettingsTreeAction, SettingsTreeFields } from "@lichtblick/suite";
 import type { RosValue } from "@lichtblick/suite-base/players/types";
 
-import { RenderableLineStrip } from "./markers/RenderableLineStrip";
 import type { AnyRendererSubscription, IRenderer } from "../IRenderer";
 import { BaseUserData, Renderable } from "../Renderable";
 import {
@@ -33,6 +32,7 @@ import {
 import { BaseSettings } from "../settings";
 import { topicIsConvertibleToSchema } from "../topicIsConvertibleToSchema";
 import { makePose } from "../transforms";
+import { RenderableLineStrip } from "./markers/RenderableLineStrip";
 
 export type LayerSettingsPolygon = BaseSettings & {
   lineWidth: number;
@@ -96,7 +96,15 @@ export class Polygons extends SceneExtension<PolygonRenderable> {
 
       // prettier-ignore
       const fields: SettingsTreeFields = {
-        lineWidth: { label: "Line Width", input: "number", min: 0, placeholder: String(DEFAULT_LINE_WIDTH), step: 0.005, precision: 3, value: config.lineWidth },
+        lineWidth: {
+          label: "Line Width",
+          input: "number",
+          min: 0,
+          placeholder: String(DEFAULT_LINE_WIDTH),
+          step: 0.005,
+          precision: 3,
+          value: config.lineWidth,
+        },
         color: { label: "Color", input: "rgba", value: config.color ?? DEFAULT_COLOR_STR },
       };
 
@@ -126,9 +134,7 @@ export class Polygons extends SceneExtension<PolygonRenderable> {
     const topicName = path[1]!;
     const renderable = this.renderables.get(topicName);
     if (renderable) {
-      const settings = this.renderer.config.topics[topicName] as
-        | Partial<LayerSettingsPolygon>
-        | undefined;
+      const settings = this.renderer.config.topics[topicName];
       renderable.userData.settings = { ...DEFAULT_SETTINGS, ...settings };
       this.#updatePolygonRenderable(
         renderable,
@@ -146,9 +152,7 @@ export class Polygons extends SceneExtension<PolygonRenderable> {
     let renderable = this.renderables.get(topic);
     if (!renderable) {
       // Set the initial settings from default values merged with any user settings
-      const userSettings = this.renderer.config.topics[topic] as
-        | Partial<LayerSettingsPolygon>
-        | undefined;
+      const userSettings = this.renderer.config.topics[topic];
       const settings = { ...DEFAULT_SETTINGS, ...userSettings };
 
       renderable = new PolygonRenderable(topic, this.renderer, {

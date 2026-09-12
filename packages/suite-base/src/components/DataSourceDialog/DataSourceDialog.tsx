@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -61,7 +61,7 @@ export function DataSourceDialog(props: DataSourceDialogProps): React.JSX.Elemen
   const analytics = useAnalytics();
 
   const onModalClose = useCallback(() => {
-    void analytics.logEvent(AppEvent.DIALOG_CLOSE, { activeDataSource });
+    analytics.logEvent(AppEvent.DIALOG_CLOSE, { activeDataSource });
     dialogActions.dataSource.close();
   }, [analytics, activeDataSource, dialogActions.dataSource]);
 
@@ -129,11 +129,15 @@ export function DataSourceDialog(props: DataSourceDialogProps): React.JSX.Elemen
       onClose={onModalClose}
       fullWidth
       maxWidth="lg"
-      BackdropProps={{ children: backdrop }}
-      PaperProps={{
-        square: false,
-        elevation: 4,
-        className: classes.paper,
+      slotProps={{
+        backdrop: {
+          children: backdrop,
+        },
+        paper: {
+          square: false,
+          elevation: 4,
+          className: classes.paper,
+        },
       }}
     >
       <IconButton className={classes.closeButton} onClick={onModalClose} edge="end">

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -23,7 +23,7 @@ const useStyles = makeStyles()((theme) => {
       boxShadow: "none",
       backgroundColor: theme.palette.appBar.main,
       borderBottom: "none",
-      color: theme.palette.common.white,
+      color: theme.palette.appBar.text,
       height: APP_BAR_HEIGHT,
 
       paddingRight: "calc(100% - env(titlebar-area-x) - env(titlebar-area-width))",

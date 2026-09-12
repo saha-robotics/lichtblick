@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -14,16 +14,16 @@
 //   found at http://www.apache.org/licenses/LICENSE-2.0
 //   You may not use this file except in compliance with the License.
 
-import { StoryObj } from "@storybook/react";
+import { StoryObj } from "@storybook/react-webpack5";
 import { useState } from "react";
 
-import { ExtensionInfo, ExtensionLoader } from "@lichtblick/suite-base";
+import { ExtensionInfo, IExtensionLoader } from "@lichtblick/suite-base";
 import ExtensionsSettings from "@lichtblick/suite-base/components/ExtensionsSettings";
 import AppConfigurationContext from "@lichtblick/suite-base/context/AppConfigurationContext";
 import ExtensionMarketplaceContext, {
   ExtensionMarketplace,
 } from "@lichtblick/suite-base/context/ExtensionMarketplaceContext";
-import ExtensionCatalogProvider from "@lichtblick/suite-base/providers/ExtensionCatalogProvider";
+import ExtensionCatalogProvider from "@lichtblick/suite-base/providers/ExtensionCatalogProvider/ExtensionCatalogProvider";
 import { makeMockAppConfiguration } from "@lichtblick/suite-base/util/makeMockAppConfiguration";
 
 export default {
@@ -39,11 +39,13 @@ const installedExtensions: ExtensionInfo[] = [
     displayName: "Private Extension Name",
     description: "Private extension sample description",
     publisher: "Private Publisher",
-    homepage: "https://foxglove.dev/",
+    homepage: "https://github.com/lichtblick-suite",
     license: "MIT",
     version: "1.2.10",
     keywords: ["storybook", "testing"],
     namespace: "org",
+    readme: "Readme for extension",
+    changelog: "Changes effectuated on extension",
   },
   {
     id: "publisher.storyextension",
@@ -52,11 +54,13 @@ const installedExtensions: ExtensionInfo[] = [
     displayName: "Extension Name",
     description: "Extension sample description",
     publisher: "Publisher",
-    homepage: "https://foxglove.dev/",
+    homepage: "https://github.com/lichtblick-suite",
     license: "MIT",
     version: "1.2.10",
     keywords: ["storybook", "testing"],
     namespace: "local",
+    readme: "Readme for extension",
+    changelog: "Changes effectuated on extension",
   },
 ];
 
@@ -68,18 +72,22 @@ const marketplaceExtensions: ExtensionInfo[] = [
     displayName: "Extension Name",
     description: "Extension sample description",
     publisher: "Publisher",
-    homepage: "https://foxglove.dev/",
+    homepage: "https://github.com/lichtblick-suite",
     license: "MIT",
     version: "1.2.10",
     keywords: ["storybook", "testing"],
+    readme: "Readme for extension",
+    changelog: "Changes effectuated on extension",
   },
 ];
 
-const MockExtensionLoader: ExtensionLoader = {
+const MockExtensionLoader: IExtensionLoader = {
+  type: "browser",
   namespace: "local",
+  getExtension: async () => installedExtensions[0],
   getExtensions: async () => installedExtensions,
-  loadExtension: async (_id: string) => "",
-  installExtension: async (_foxeFileData: Uint8Array) => {
+  loadExtension: async (_id: string) => ({ raw: "" }),
+  installExtension: async ({ foxeFileData: _foxeFileData }) => {
     throw new Error("MockExtensionLoader cannot install extensions");
   },
   uninstallExtension: async (_id: string) => undefined,

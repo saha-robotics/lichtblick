@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -68,11 +68,20 @@ type DesktopExtension = {
   id: string;
   packageJson: unknown;
   directory: string;
+  readme: string;
+  changelog: string;
 };
 
 type DesktopLayout = {
   layoutJson: unknown;
   from: string;
+};
+
+export type CLIFlags = Readonly<Record<string, string>>;
+
+export type LoadedExtension = {
+  buffer?: Uint8Array;
+  raw: string;
 };
 
 interface Desktop {
@@ -97,7 +106,7 @@ interface Desktop {
   getExtensions: () => Promise<DesktopExtension[]>;
 
   // Load the source code for an extension
-  loadExtension: (id: string) => Promise<string>;
+  loadExtension: (id: string) => Promise<LoadedExtension>;
 
   // Fetch default layouts from local folder
   fetchLayouts: () => Promise<DesktopLayout[]>;
@@ -108,6 +117,9 @@ interface Desktop {
   // Uninstall an extension. Returns true if the extension was found and uninstalled, or false if it
   // was not found (i.e. already uninstalled)
   uninstallExtension: (id: string) => Promise<boolean>;
+
+  // Get CLI flags passed when the app was launched
+  getCLIFlags: () => Promise<CLIFlags>;
 
   /** Handle a double-click on the custom title bar */
   handleTitleBarDoubleClick(): void;

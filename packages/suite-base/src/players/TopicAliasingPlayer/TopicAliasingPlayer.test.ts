@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -6,7 +6,8 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import FakePlayer from "@lichtblick/suite-base/components/MessagePipeline/FakePlayer";
-import { PlayerProblem, PlayerState, Topic } from "@lichtblick/suite-base/players/types";
+import { PlayerAlert, PlayerState, Topic } from "@lichtblick/suite-base/players/types";
+import { BasicBuilder } from "@lichtblick/test-builders";
 
 import { TopicAliasFunctions } from "./StateProcessorFactory";
 import { TopicAliasingPlayer } from "./TopicAliasingPlayer";
@@ -74,6 +75,7 @@ describe("TopicAliasingPlayer", () => {
 
   it("maps messages", async () => {
     const fakePlayer = new FakePlayer();
+    const message = BasicBuilder.string();
     const mappers: TopicAliasFunctions = [
       {
         extensionId: "any",
@@ -87,8 +89,8 @@ describe("TopicAliasingPlayer", () => {
     await fakePlayer.emit(
       mockPlayerState(undefined, {
         messages: [
-          mockMessage("message", { topic: "/original_topic_1" }),
-          mockMessage("message", { topic: "/topic_2" }),
+          mockMessage(message, { topic: "/original_topic_1" }),
+          mockMessage(message, { topic: "/topic_2" }),
         ],
         topics: [{ name: "/original_topic_1", schemaName: "any.schema" }],
       }),
@@ -98,9 +100,9 @@ describe("TopicAliasingPlayer", () => {
       expect.objectContaining({
         activeData: expect.objectContaining({
           messages: [
-            mockMessage("message", { topic: "/original_topic_1" }),
-            mockMessage("message", { topic: "/renamed_topic_1" }),
-            mockMessage("message", { topic: "/topic_2" }),
+            mockMessage(message, { topic: "/original_topic_1" }),
+            mockMessage(message, { topic: "/renamed_topic_1" }),
+            mockMessage(message, { topic: "/topic_2" }),
           ],
           topics: [
             { name: "/original_topic_1", schemaName: "any.schema" },
@@ -115,8 +117,9 @@ describe("TopicAliasingPlayer", () => {
     );
   });
 
-  it("marks disallowed mappings as player problems", async () => {
+  it("marks disallowed mappings as player alerts", async () => {
     const fakePlayer = new FakePlayer();
+    const message = BasicBuilder.string();
     const mappers: TopicAliasFunctions = [
       {
         extensionId: "ext1",
@@ -132,14 +135,14 @@ describe("TopicAliasingPlayer", () => {
     ];
     const player = new TopicAliasingPlayer(fakePlayer);
     player.setAliasFunctions(mappers);
-    let problems: undefined | PlayerProblem[] = [];
+    let alerts: undefined | PlayerAlert[] = [];
     const listener = async (state: PlayerState) => {
-      problems = state.problems;
+      alerts = state.alerts;
     };
     player.setListener(listener);
     await fakePlayer.emit(
       mockPlayerState(undefined, {
-        messages: [mockMessage("message", { topic: "/original_topic_1" })],
+        messages: [mockMessage(message, { topic: "/original_topic_1" })],
         topics: [
           { name: "/original_topic_1", schemaName: "schema1" },
           { name: "/original_topic_2", schemaName: "schema2" },
@@ -147,7 +150,7 @@ describe("TopicAliasingPlayer", () => {
       }),
     );
 
-    expect(problems).toEqual([
+    expect(alerts).toEqual([
       {
         message: "Disallowed topic alias",
         tip: "Extension ext1 aliased topic /original_topic_1 is already present in the data source.",
@@ -163,6 +166,7 @@ describe("TopicAliasingPlayer", () => {
 
   it("maps blocks", async () => {
     const fakePlayer = new FakePlayer();
+    const message = BasicBuilder.string();
     const mappers: TopicAliasFunctions = [
       {
         extensionId: "any",
@@ -189,8 +193,8 @@ describe("TopicAliasingPlayer", () => {
             blocks: [
               {
                 messagesByTopic: {
-                  "/topic_1": [mockMessage("message", { topic: "/topic_1" })],
-                  "/topic_2": [mockMessage("message", { topic: "/topic_2" })],
+                  "/topic_1": [mockMessage(message, { topic: "/topic_1" })],
+                  "/topic_2": [mockMessage(message, { topic: "/topic_2" })],
                 },
                 sizeInBytes: 0,
               },
@@ -221,6 +225,46 @@ describe("TopicAliasingPlayer", () => {
         },
       }),
     );
+  });
+
+  it("should pass through backfill lookups without alias translation when requested", async () => {
+    // GIVEN - a player whose underlying source can answer backfill lookups directly
+    const fakePlayer = new FakePlayer() as FakePlayer & {
+      getBackfillMessages: jest.Mock;
+    };
+    const backfillMessage = mockMessage(BasicBuilder.string(), { topic: "/original_topic_1" });
+    const getBackfillMessagesSpy = jest.fn().mockResolvedValue([backfillMessage]);
+    fakePlayer.getBackfillMessages = getBackfillMessagesSpy;
+    const player = new TopicAliasingPlayer(fakePlayer);
+    const topic = BasicBuilder.string();
+
+    // WHEN - looking up a backfill message for a topic alias
+    const result = await player.getBackfillMessages({
+      topics: new Map([[topic, { topic }]]),
+      time: { sec: 0, nsec: 1 },
+    });
+
+    // THEN - the request is forwarded unchanged to the underlying player
+    expect(getBackfillMessagesSpy).toHaveBeenCalledWith({
+      topics: new Map([[topic, { topic }]]),
+      time: { sec: 0, nsec: 1 },
+    });
+    expect(result).toEqual([backfillMessage]);
+  });
+
+  it("should return no backfill messages when the wrapped player does not support lookups", async () => {
+    // GIVEN - a wrapped player without the optional backfill API
+    const player = new TopicAliasingPlayer(new FakePlayer());
+    const topic = BasicBuilder.string();
+
+    // WHEN - requesting a point-in-time backfill lookup
+    const result = await player.getBackfillMessages({
+      topics: new Map([[topic, { topic }]]),
+      time: { sec: 0, nsec: 1 },
+    });
+
+    // THEN - the wrapper reports that no messages are available
+    expect(result).toEqual([]);
   });
 
   it("provides global variables on startup", async () => {

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -40,7 +40,7 @@ import Stack from "@lichtblick/suite-base/components/Stack";
 
 import TableCell from "./TableCell";
 import { sanitizeAccessorPath } from "./sanitizeAccessorPath";
-import { CellValue } from "./types";
+import { CellValue, MergedColumnsType } from "./types";
 
 type TypedArray =
   | Int8Array
@@ -187,7 +187,7 @@ function getColumnsFromObject(val: CellValue, accessorPath: string) {
       }),
     ];
   }
-  const columns = Object.keys(val).map((accessor) => {
+  const columns: MergedColumnsType = Object.keys(val).map((accessor) => {
     const id = accessorPath.length !== 0 ? `${accessorPath}.${accessor}` : accessor;
     return columnHelper.accessor(accessor, {
       header: accessor,
@@ -226,16 +226,14 @@ export default function Table({
 
   const columns = React.useMemo(() => {
     if (
-      // eslint-disable-next-line no-restricted-syntax
       value == null ||
       typeof value !== "object" ||
-      // eslint-disable-next-line no-restricted-syntax
       (Array.isArray(value) && typeof value[0] !== "object" && value[0] != null)
     ) {
       return [];
     }
 
-    const maybeMessage = Array.isArray(value) ? value[0] ?? {} : value;
+    const maybeMessage = Array.isArray(value) ? (value[0] ?? {}) : value;
 
     // Strong assumption about structure of data.
     return getColumnsFromObject(maybeMessage as CellValue, accessorPath);
@@ -280,7 +278,6 @@ export default function Table({
 
   if (
     typeof value !== "object" ||
-    // eslint-disable-next-line no-restricted-syntax
     value == null ||
     (!isNested && Array.isArray(value) && typeof value[0] !== "object")
   ) {

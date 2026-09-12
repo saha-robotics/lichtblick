@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -15,6 +15,7 @@ import { TFunction } from "i18next";
 import * as _ from "lodash-es";
 import memoizeWeak from "memoize-weak";
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef } from "react";
+import { useDrag, useDrop, DropTargetMonitor, ConnectableElement } from "react-dnd";
 import { useTranslation } from "react-i18next";
 import { useImmer } from "use-immer";
 
@@ -25,9 +26,17 @@ import {
   SettingsTreeField,
   SettingsTreeNode,
   SettingsTreeNodeActionItem,
+  SettingsTreeNodes,
 } from "@lichtblick/suite";
 import { HighlightedText } from "@lichtblick/suite-base/components/HighlightedText";
 import { useStyles } from "@lichtblick/suite-base/components/SettingsTreeEditor/NodeEditor.style";
+import { SETTINGS_NODE_DRAG_TYPE } from "@lichtblick/suite-base/components/SettingsTreeEditor/constants";
+import {
+  DragItem,
+  NodeEditorProps,
+  NodeEditorState,
+  SelectVisibilityFilterValue,
+} from "@lichtblick/suite-base/components/SettingsTreeEditor/types";
 import Stack from "@lichtblick/suite-base/components/Stack";
 import { useAppContext } from "@lichtblick/suite-base/context/AppContext";
 
@@ -35,18 +44,9 @@ import { FieldEditor } from "./FieldEditor";
 import { NodeActionsMenu } from "./NodeActionsMenu";
 import { VisibilityToggle } from "./VisibilityToggle";
 import { icons } from "./icons";
-import { prepareSettingsNodes } from "./utils";
+import { filterTreeNodes, prepareSettingsNodes } from "./utils";
 
-type NodeEditorProps = {
-  actionHandler: (action: SettingsTreeAction) => void;
-  defaultOpen?: boolean;
-  filter?: string;
-  focusedPath?: readonly string[];
-  path: readonly string[];
-  settings?: Immutable<SettingsTreeNode>;
-};
-
-function ExpansionArrow({ expanded }: { expanded: boolean }): React.JSX.Element {
+function ExpansionArrow({ expanded }: Readonly<{ expanded: boolean }>): React.JSX.Element {
   const { classes } = useStyles();
 
   const Component = expanded ? ArrowDownIcon : ArrowRightIcon;
@@ -59,7 +59,6 @@ function ExpansionArrow({ expanded }: { expanded: boolean }): React.JSX.Element 
 
 const makeStablePath = memoizeWeak((path: readonly string[], key: string) => [...path, key]);
 
-type SelectVisibilityFilterValue = "all" | "visible" | "invisible";
 const SelectVisibilityFilterOptions: (t: TFunction<"settingsEditor">) => {
   label: string;
   value: SelectVisibilityFilterValue;
@@ -84,19 +83,27 @@ const getSelectVisibilityFilterField = (t: TFunction<"settingsEditor">) =>
     options: SelectVisibilityFilterOptions(t),
   }) as const;
 
-type State = {
-  editing: boolean;
-  focusedPath: undefined | readonly string[];
-  open: boolean;
-  visibilityFilter: SelectVisibilityFilterValue;
+export const handleDropNode = (
+  item: DragItem,
+  targetPath: readonly string[],
+  actionHandler: (action: SettingsTreeAction) => void,
+): void => {
+  actionHandler({
+    action: "reorder-node",
+    payload: {
+      path: item.path,
+      targetPath,
+    },
+  });
 };
 
-function NodeEditorComponent(props: NodeEditorProps): React.JSX.Element {
+function NodeEditorComponent(props: Readonly<NodeEditorProps>): React.JSX.Element {
   const { actionHandler, defaultOpen = true, filter, focusedPath, settings = {} } = props;
-  const [state, setState] = useImmer<State>({
+  const [state, setState] = useImmer<NodeEditorState>({
     editing: false,
     focusedPath: undefined,
     open: defaultOpen,
+    textFilter: "",
     visibilityFilter: "all",
   });
   const { renderSettingsStatusButton } = useAppContext();
@@ -107,11 +114,61 @@ function NodeEditorComponent(props: NodeEditorProps): React.JSX.Element {
   const allowVisibilityToggle = props.settings?.visible != undefined;
   const visible = props.settings?.visible !== false;
   const selectVisibilityFilterEnabled = props.settings?.enableVisibilityFilter === true;
+  const isReorderable = settings.reorderable === true;
+
+  // Set up drag and drop for reorderable nodes
+  const [{ isDragging }, connectDragRef] = useDrag<DragItem, void, { isDragging: boolean }>(
+    () => ({
+      type: SETTINGS_NODE_DRAG_TYPE,
+      item: { path: props.path },
+      canDrag: () => isReorderable,
+      collect: (monitor) => ({
+        isDragging: monitor.isDragging(),
+      }),
+    }),
+    [props.path, isReorderable],
+  );
+
+  const [{ isOver, canDrop }, connectDropRef] = useDrop<
+    DragItem,
+    void,
+    { isOver: boolean; canDrop: boolean }
+  >(
+    () => ({
+      accept: SETTINGS_NODE_DRAG_TYPE,
+      canDrop: (item: DragItem) => {
+        // Can only drop if both source and target are reorderable and are siblings
+        return (
+          isReorderable &&
+          item.path.length === props.path.length &&
+          item.path.length >= 2 &&
+          item.path[0] === props.path[0] &&
+          !_.isEqual(item.path, props.path)
+        );
+      },
+      drop: (item: DragItem, _monitor) => {
+        handleDropNode(item, props.path, actionHandler);
+      },
+      collect: (monitor: DropTargetMonitor<DragItem, void>) => ({
+        isOver: monitor.isOver(),
+        canDrop: monitor.canDrop(),
+      }),
+    }),
+    [props.path, isReorderable, actionHandler],
+  );
 
   const selectVisibilityFilter = (action: SettingsTreeAction) => {
     if (action.action === "update" && action.payload.input === "select") {
       setState((draft) => {
         draft.visibilityFilter = action.payload.value as SelectVisibilityFilterValue;
+      });
+    }
+  };
+
+  const textFilterHandler = (action: SettingsTreeAction) => {
+    if (action.action === "update" && action.payload.input === "string") {
+      setState((draft) => {
+        draft.textFilter = action.payload.value as string;
       });
     }
   };
@@ -182,28 +239,33 @@ function NodeEditorComponent(props: NodeEditorProps): React.JSX.Element {
 
   const preparedNodes = useMemo(() => prepareSettingsNodes(children ?? {}), [children]);
 
-  const filteredNodes = useMemo(() => {
+  const visibilityFilteredNodes = useMemo(() => {
     if (!filterFn) {
       return preparedNodes;
     }
-    return filterMap(preparedNodes, ([, child]) => filterFn(child));
+    return preparedNodes.filter(([, child]) => filterFn(child));
   }, [preparedNodes, filterFn]);
 
+  const filteredNodes = useMemo(() => {
+    if (state.textFilter.length === 0) {
+      return visibilityFilteredNodes;
+    }
+    const nodesRecord: Immutable<SettingsTreeNodes> = Object.fromEntries(visibilityFilteredNodes);
+    return prepareSettingsNodes(filterTreeNodes(nodesRecord, state.textFilter));
+  }, [visibilityFilteredNodes, state.textFilter]);
+
   const childNodes = useMemo(() => {
-    return filterMap(
-      filteredNodes as Immutable<Array<[string, SettingsTreeNode]>>,
-      ([key, child]) => (
-        <NodeEditor
-          actionHandler={actionHandler}
-          defaultOpen={child.defaultExpansionState !== "collapsed"}
-          filter={filter}
-          focusedPath={focusedPath}
-          key={key}
-          settings={child}
-          path={makeStablePath(props.path, key)}
-        />
-      ),
-    );
+    return filterMap(filteredNodes, ([key, child]) => (
+      <NodeEditor
+        actionHandler={actionHandler}
+        defaultOpen={child.defaultExpansionState !== "collapsed"}
+        filter={filter}
+        focusedPath={focusedPath}
+        key={key}
+        settings={child}
+        path={makeStablePath(props.path, key)}
+      />
+    ));
   }, [filteredNodes, actionHandler, filter, focusedPath, props.path]);
 
   const IconComponent = settings.icon ? icons[settings.icon] : undefined;
@@ -257,8 +319,8 @@ function NodeEditorComponent(props: NodeEditorProps): React.JSX.Element {
     ? renderSettingsStatusButton(settings)
     : undefined;
 
-  // Determine the item to render in the icon slot
-  // If there's an error we render the error dot, otherwise we render the provided IconComponent
+  const isDragHandleIcon = settings.icon === "DragHandle" && isReorderable;
+
   const iconItem = useMemo(() => {
     if (props.settings?.error) {
       return (
@@ -281,7 +343,7 @@ function NodeEditorComponent(props: NodeEditorProps): React.JSX.Element {
       );
     }
 
-    if (IconComponent) {
+    if (IconComponent && !isDragHandleIcon) {
       return (
         <IconComponent
           fontSize="small"
@@ -295,7 +357,23 @@ function NodeEditorComponent(props: NodeEditorProps): React.JSX.Element {
     }
 
     return <></>;
-  }, [IconComponent, classes.errorTooltip, props.settings?.error, theme]);
+  }, [IconComponent, classes.errorTooltip, props.settings?.error, theme, isDragHandleIcon]);
+
+  const dragHandleIcon = useMemo(() => {
+    if (isDragHandleIcon && IconComponent) {
+      return (
+        <IconComponent
+          fontSize="small"
+          color="inherit"
+          style={{
+            marginRight: theme.spacing(0.5),
+            opacity: 0.8,
+          }}
+        />
+      );
+    }
+    return undefined;
+  }, [IconComponent, isDragHandleIcon, theme]);
 
   return (
     <>
@@ -303,8 +381,20 @@ function NodeEditorComponent(props: NodeEditorProps): React.JSX.Element {
         className={cx(classes.nodeHeader, {
           [classes.focusedNode]: isFocused,
           [classes.nodeHeaderVisible]: visible,
+          [classes.nodeHeaderDragging]: isDragging,
+          [classes.nodeHeaderDropTarget]: isOver && canDrop,
         })}
-        ref={rootRef}
+        ref={(el: ConnectableElement) => {
+          rootRef.current = el as HTMLDivElement | typeof ReactNull;
+          if (isReorderable) {
+            connectDragRef(el);
+            connectDropRef(el);
+          }
+        }}
+        style={{
+          opacity: isDragging ? 0.5 : 1,
+          cursor: isReorderable ? "grab" : undefined,
+        }}
       >
         <div
           className={cx(classes.nodeHeaderToggle, {
@@ -317,6 +407,7 @@ function NodeEditorComponent(props: NodeEditorProps): React.JSX.Element {
           onClick={toggleOpen}
           data-testid={`settings__nodeHeaderToggle__${props.path.join("-")}`}
         >
+          {dragHandleIcon}
           {hasProperties && <ExpansionArrow expanded={state.open} />}
           {iconItem}
           {state.editing ? (
@@ -331,27 +422,30 @@ function NodeEditorComponent(props: NodeEditorProps): React.JSX.Element {
               onFocus={(event) => {
                 event.target.select();
               }}
-              InputProps={{
-                endAdornment: (
-                  <IconButton
-                    className={classes.actionButton}
-                    title="Rename"
-                    data-node-function="edit-label"
-                    color="primary"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      toggleEditing();
-                    }}
-                  >
-                    <CheckIcon fontSize="small" />
-                  </IconButton>
-                ),
+              slotProps={{
+                input: {
+                  endAdornment: (
+                    <IconButton
+                      className={classes.actionButton}
+                      title="Rename"
+                      data-node-function="edit-label"
+                      data-testid="check-icon-button"
+                      color="primary"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleEditing();
+                      }}
+                    >
+                      <CheckIcon fontSize="small" />
+                    </IconButton>
+                  ),
+                },
               }}
             />
           ) : (
             <Typography
               noWrap={true}
-              flex="auto"
+              flex="1 1 auto"
               variant="subtitle2"
               fontWeight={indent < 2 ? 600 : 400}
               color={visible ? "text.primary" : "text.disabled"}
@@ -375,17 +469,16 @@ function NodeEditorComponent(props: NodeEditorProps): React.JSX.Element {
               <EditIcon fontSize="small" />
             </IconButton>
           )}
-          {statusButton
-            ? statusButton
-            : settings.visible != undefined && (
-                <VisibilityToggle
-                  size="small"
-                  checked={visible}
-                  onChange={toggleVisibility}
-                  style={{ opacity: allowVisibilityToggle ? 1 : 0 }}
-                  disabled={!allowVisibilityToggle}
-                />
-              )}
+          {statusButton ??
+            (settings.visible != undefined && (
+              <VisibilityToggle
+                size="small"
+                checked={visible}
+                onChange={toggleVisibility}
+                style={{ opacity: allowVisibilityToggle ? 1 : 0 }}
+                disabled={!allowVisibilityToggle}
+              />
+            ))}
           {inlineActions.map((action) => {
             const Icon = action.icon ? icons[action.icon] : undefined;
             const handler = () => {
@@ -436,6 +529,18 @@ function NodeEditorComponent(props: NodeEditorProps): React.JSX.Element {
             field={{ ...getSelectVisibilityFilterField(t), value: state.visibilityFilter }}
             path={makeStablePath(props.path, "visibilityFilter")}
             actionHandler={selectVisibilityFilter}
+          />
+          <FieldEditor
+            key="textFilter"
+            field={{
+              input: "string",
+              label: t("filterListText"),
+              help: t("filterListTextHelp"),
+              placeholder: t("filterListTextPlaceholder"),
+              value: state.textFilter,
+            }}
+            path={makeStablePath(props.path, "textFilter")}
+            actionHandler={textFilterHandler}
           />
         </>
       )}

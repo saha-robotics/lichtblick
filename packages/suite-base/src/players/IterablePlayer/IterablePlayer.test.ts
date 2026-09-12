@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v2.0. If a copy of the MPL was not distributed with this
@@ -11,27 +11,38 @@ import * as _ from "lodash-es";
 import { signal } from "@lichtblick/den/async";
 import { fromSec } from "@lichtblick/rostime";
 import { PLAYER_CAPABILITIES } from "@lichtblick/suite-base/players/constants";
-import { MessageEvent, PlayerPresence, PlayerState } from "@lichtblick/suite-base/players/types";
+import {
+  InternalSubscribePayload,
+  MessageEvent,
+  PlayerPresence,
+  PlayerState,
+} from "@lichtblick/suite-base/players/types";
+import { HIGH_FREQUENCY_ALERT } from "@lichtblick/suite-base/players/utils/constants";
+import * as highFrequencyUtils from "@lichtblick/suite-base/players/utils/isTopicHighFrequency";
 import { mockTopicSelection } from "@lichtblick/suite-base/test/mocks/mockTopicSelection";
+import MessageEventBuilder from "@lichtblick/suite-base/testing/builders/MessageEventBuilder";
+import { BasicBuilder } from "@lichtblick/test-builders";
 
 import {
   GetBackfillMessagesArgs,
-  IIterableSource,
-  Initalization,
+  IDeserializedIterableSource,
+  Initialization,
   IteratorResult,
   MessageIteratorArgs,
 } from "./IIterableSource";
 import { IterablePlayer } from "./IterablePlayer";
 
-class TestSource implements IIterableSource {
-  public async initialize(): Promise<Initalization> {
+class TestSource implements IDeserializedIterableSource {
+  public readonly sourceType = "deserialized";
+
+  public async initialize(): Promise<Initialization> {
     return {
       start: { sec: 0, nsec: 0 },
       end: { sec: 1, nsec: 0 },
       topics: [],
       topicStats: new Map(),
       profile: undefined,
-      problems: [],
+      alerts: [],
       datatypes: new Map(),
       publishersByTopic: new Map(),
       metadata: [{ name: "metadata1", metadata: { key: "value" } }],
@@ -46,6 +57,22 @@ class TestSource implements IIterableSource {
     return [];
   }
 }
+
+function messageEvent(props: Partial<MessageEvent> = {}): MessageEvent {
+  const event = MessageEventBuilder.messageEvent({
+    message: undefined,
+    sizeInBytes: 0,
+    schemaName: BasicBuilder.string(),
+    topic: BasicBuilder.string(),
+    ...props,
+  });
+  event.message = props.message;
+  delete event.publishTime;
+  delete event.topicConfig;
+  return event;
+}
+
+const defaultTopic = BasicBuilder.string();
 
 type PlayerStateWithoutPlayerId = Omit<PlayerState, "playerId">;
 
@@ -137,7 +164,7 @@ describe("IterablePlayer", () => {
         topicStats: new Map(),
         publishedTopics: new Map<string, Set<string>>(),
       },
-      problems: [],
+      alerts: [],
       capabilities: [PLAYER_CAPABILITIES.setSpeed, PLAYER_CAPABILITIES.playbackControl],
       profile: undefined,
       presence: PlayerPresence.INITIALIZING,
@@ -182,15 +209,85 @@ describe("IterablePlayer", () => {
     await player.isClosed;
   });
 
+  it("should return backfill messages from the iterable source when requested", async () => {
+    // GIVEN - a source that can resolve backfill messages for a topic
+    const source = new TestSource();
+    const topic = BasicBuilder.string();
+    const backfillMessage = messageEvent({
+      topic,
+      receiveTime: { sec: 0, nsec: 1 },
+    });
+    const getBackfillMessagesSpy = jest
+      .spyOn(source, "getBackfillMessages")
+      .mockResolvedValue([backfillMessage]);
+    const player = new IterablePlayer({
+      source,
+      enablePreload: false,
+      sourceId: "test",
+    });
+    const ready = signal();
+    player.setListener(async (state) => {
+      if (state.activeData) {
+        ready.resolve();
+      }
+    });
+
+    // Wait until initialization has populated the message range source.
+    await ready;
+
+    // WHEN - asking the player for a point-in-time backfill lookup
+    const result = await player.getBackfillMessages({
+      topics: new Map([[topic, { topic }]]),
+      time: fromSec(1),
+    });
+
+    // THEN - the player delegates to the source and returns the matching messages
+    expect(getBackfillMessagesSpy).toHaveBeenCalledWith({
+      topics: new Map([[topic, { topic }]]),
+      time: fromSec(1),
+    });
+    expect(result).toEqual([backfillMessage]);
+
+    player.close();
+    await player.isClosed;
+  });
+
+  it("should return no backfill messages before the range source is initialized", async () => {
+    // GIVEN - a player whose asynchronous initialization has not completed
+    const source = new TestSource();
+    const sentinelMessage = messageEvent({ topic: "sentinel" });
+    jest.spyOn(source, "getBackfillMessages").mockResolvedValue([sentinelMessage]);
+    const player = new IterablePlayer({
+      source,
+      enablePreload: false,
+      sourceId: "test",
+    });
+    const topic = BasicBuilder.string();
+
+    // WHEN - requesting a point-in-time backfill lookup immediately
+    const result = await player.getBackfillMessages({
+      topics: new Map([[topic, { topic }]]),
+      time: fromSec(1),
+    });
+
+    // THEN - the player reports that there are no available messages yet
+    expect(result).toEqual([]);
+
+    player.close();
+    await player.isClosed;
+  });
+
   it("when seeking during a seek backfill, start another seek after the current one exits", async () => {
     const source = new TestSource();
+    const topic = BasicBuilder.string();
+    const schemaName = BasicBuilder.string();
     const player = new IterablePlayer({
       source,
       enablePreload: false,
       sourceId: "test",
     });
     const store = new PlayerStateStore(4);
-    player.setSubscriptions([{ topic: "foo" }]);
+    player.setSubscriptions([{ topic }]);
     player.setListener(async (state) => {
       await store.add(state);
     });
@@ -209,15 +306,7 @@ describe("IterablePlayer", () => {
       // Set a new backfill method and initiate another seek
       source.getBackfillMessages = async function () {
         source.getBackfillMessages = originalMethod;
-        return [
-          {
-            topic: "foo",
-            receiveTime: { sec: 0, nsec: 1 },
-            message: undefined,
-            sizeInBytes: 0,
-            schemaName: "foo",
-          },
-        ];
+        return [messageEvent({ topic, receiveTime: { sec: 0, nsec: 1 }, schemaName })];
       };
 
       player.seekPlayback({ sec: 0, nsec: 1 });
@@ -244,7 +333,7 @@ describe("IterablePlayer", () => {
         topicStats: new Map(),
         publishedTopics: new Map<string, Set<string>>(),
       },
-      problems: [],
+      alerts: [],
       capabilities: [PLAYER_CAPABILITIES.setSpeed, PLAYER_CAPABILITIES.playbackControl],
       profile: undefined,
       presence: PlayerPresence.PRESENT,
@@ -264,15 +353,7 @@ describe("IterablePlayer", () => {
       activeData: {
         ...baseState.activeData!,
         currentTime: { sec: 0, nsec: 1 },
-        messages: [
-          {
-            message: undefined,
-            receiveTime: { sec: 0, nsec: 1 },
-            sizeInBytes: 0,
-            topic: "foo",
-            schemaName: "foo",
-          },
-        ],
+        messages: [messageEvent({ topic, receiveTime: { sec: 0, nsec: 1 }, schemaName })],
       },
     };
 
@@ -286,6 +367,151 @@ describe("IterablePlayer", () => {
     await player.isClosed;
   });
 
+  it("while playing, seek keeps the cursor parked until the seek emit is released", async () => {
+    const source = new TestSource();
+    const topic = BasicBuilder.string();
+    const schemaName = BasicBuilder.string();
+    const player = new IterablePlayer({
+      source,
+      enablePreload: false,
+      sourceId: "test",
+    });
+
+    player.setSubscriptions([{ topic }]);
+
+    const initialStore = new PlayerStateStore(4);
+    const playingStarted = signal();
+    const seekEmitEntered = signal();
+    const releaseSeekEmit = signal();
+    const resumedAfterSeekEmit = signal();
+
+    let initialized = false;
+    let inSeekEmit = false;
+    let postInitStateCount = 0;
+    let resumedCurrentNs: number | undefined;
+
+    source.getBackfillMessages = async (args: GetBackfillMessagesArgs): Promise<MessageEvent[]> => {
+      return [messageEvent({ topic, receiveTime: args.time, schemaName })];
+    };
+
+    player.setListener(async (state) => {
+      if (!initialized) {
+        await initialStore.add(state);
+        return;
+      }
+
+      postInitStateCount += 1;
+
+      if (state.activeData?.isPlaying === true) {
+        playingStarted.resolve();
+      }
+
+      const messageNs = state.activeData?.messages[0]?.receiveTime.nsec;
+      if (!inSeekEmit && messageNs === 1) {
+        inSeekEmit = true;
+        seekEmitEntered.resolve();
+        await releaseSeekEmit;
+      }
+
+      if (inSeekEmit && messageNs !== 1 && state.activeData?.currentTime.nsec != undefined) {
+        resumedCurrentNs = state.activeData.currentTime.nsec;
+        resumedAfterSeekEmit.resolve();
+      }
+    });
+
+    await initialStore.done;
+    initialized = true;
+
+    player.startPlayback();
+    await playingStarted;
+
+    player.seekPlayback({ sec: 0, nsec: 1 });
+    await seekEmitEntered;
+
+    const stateCountWhileParked = postInitStateCount;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(postInitStateCount).toBe(stateCountWhileParked);
+
+    releaseSeekEmit.resolve();
+    await resumedAfterSeekEmit;
+    expect(resumedCurrentNs).toBeDefined();
+    expect(resumedCurrentNs!).toBeGreaterThan(1);
+
+    player.close();
+    await player.isClosed;
+  });
+
+  describe("expandBackfill hook", () => {
+    const topic = BasicBuilder.string();
+    const schemaName = BasicBuilder.string();
+    const raw = messageEvent({ topic, receiveTime: { sec: 0, nsec: 1 }, schemaName });
+    const extra = messageEvent({
+      topic,
+      receiveTime: { sec: 0, nsec: 0 },
+      schemaName,
+    });
+
+    it("invokes the hook with the raw backfill and emits its expanded result", async () => {
+      const source = new TestSource();
+      source.getBackfillMessages = async () => [raw];
+
+      const expandBackfill = jest.fn(async (messages: MessageEvent[]) => [extra, ...messages]);
+
+      const player = new IterablePlayer({
+        source,
+        enablePreload: false,
+        sourceId: "test",
+        expandBackfill,
+      });
+      const store = new PlayerStateStore(4);
+      player.setSubscriptions([{ topic }]);
+      player.setListener(async (state) => {
+        await store.add(state);
+      });
+      await store.done;
+
+      store.reset(2);
+      player.seekPlayback({ sec: 0, nsec: 1 });
+      const playerStates = await store.done;
+
+      expect(expandBackfill).toHaveBeenCalledTimes(1);
+      expect(expandBackfill.mock.calls[0]![0]).toEqual([raw]);
+
+      const seekState = playerStates.find((s) => (s.activeData?.messages.length ?? 0) > 0);
+      expect(seekState?.activeData?.messages).toEqual([extra, raw]);
+
+      player.close();
+      await player.isClosed;
+    });
+
+    it("passes the raw backfill through unchanged when no hook is supplied", async () => {
+      const source = new TestSource();
+      source.getBackfillMessages = async () => [raw];
+
+      const player = new IterablePlayer({
+        source,
+        enablePreload: false,
+        sourceId: "test",
+      });
+      const store = new PlayerStateStore(4);
+      player.setSubscriptions([{ topic }]);
+      player.setListener(async (state) => {
+        await store.add(state);
+      });
+      await store.done;
+
+      store.reset(2);
+      player.seekPlayback({ sec: 0, nsec: 1 });
+      const playerStates = await store.done;
+
+      const seekState = playerStates.find((s) => (s.activeData?.messages.length ?? 0) > 0);
+      expect(seekState?.activeData?.messages).toEqual([raw]);
+
+      player.close();
+      await player.isClosed;
+    });
+  });
+
   it("sets buffering presence when backfill takes too long", async () => {
     const source = new TestSource();
     const player = new IterablePlayer({
@@ -294,7 +520,7 @@ describe("IterablePlayer", () => {
       sourceId: "test",
     });
     const store = new PlayerStateStore(4);
-    player.setSubscriptions([{ topic: "foo" }]);
+    player.setSubscriptions([{ topic: defaultTopic }]);
     player.setListener(async (state) => {
       await store.add(state);
     });
@@ -333,7 +559,7 @@ describe("IterablePlayer", () => {
         topicStats: new Map(),
         publishedTopics: new Map<string, Set<string>>(),
       },
-      problems: [],
+      alerts: [],
       capabilities: [PLAYER_CAPABILITIES.setSpeed, PLAYER_CAPABILITIES.playbackControl],
       profile: undefined,
       presence: PlayerPresence.PRESENT,
@@ -369,13 +595,15 @@ describe("IterablePlayer", () => {
 
   it("startPlayback emits when seek-backfill state is active", async () => {
     const source = new TestSource();
+    const topic = BasicBuilder.string();
+    const schemaName = BasicBuilder.string();
     const player = new IterablePlayer({
       source,
       enablePreload: false,
       sourceId: "test",
     });
     const store = new PlayerStateStore(4);
-    player.setSubscriptions([{ topic: "foo" }]);
+    player.setSubscriptions([{ topic }]);
     player.setListener(async (state) => {
       await store.add(state);
     });
@@ -391,13 +619,11 @@ describe("IterablePlayer", () => {
 
       yield {
         type: "message-event",
-        msgEvent: {
-          topic: "foo",
+        msgEvent: messageEvent({
+          topic,
           receiveTime: { sec: 0, nsec: 99000001 },
-          message: undefined,
-          sizeInBytes: 0,
-          schemaName: "foo",
-        },
+          schemaName,
+        }),
       };
     };
 
@@ -415,15 +641,7 @@ describe("IterablePlayer", () => {
       source.getBackfillMessages = originalMethod;
       backfillStarted.resolve();
       await backfillPromise;
-      return [
-        {
-          topic: "foo",
-          receiveTime: { sec: 0, nsec: 1 },
-          message: undefined,
-          sizeInBytes: 0,
-          schemaName: "foo",
-        },
-      ];
+      return [messageEvent({ topic, receiveTime: { sec: 0, nsec: 1 }, schemaName })];
     };
 
     // Reset store to get state from the seeks
@@ -453,13 +671,15 @@ describe("IterablePlayer", () => {
 
   it("pausePlayback emits when seek-backfill state is active", async () => {
     const source = new TestSource();
+    const topic = BasicBuilder.string();
+    const schemaName = BasicBuilder.string();
     const player = new IterablePlayer({
       source,
       enablePreload: false,
       sourceId: "test",
     });
     const store = new PlayerStateStore(4);
-    player.setSubscriptions([{ topic: "foo" }]);
+    player.setSubscriptions([{ topic }]);
     player.setListener(async (state) => {
       await store.add(state);
     });
@@ -476,13 +696,11 @@ describe("IterablePlayer", () => {
 
       yield {
         type: "message-event",
-        msgEvent: {
-          topic: "foo",
+        msgEvent: messageEvent({
+          topic,
           receiveTime: { sec: 0, nsec: 99000001 },
-          message: undefined,
-          sizeInBytes: 0,
-          schemaName: "foo",
-        },
+          schemaName,
+        }),
       };
     };
 
@@ -500,15 +718,7 @@ describe("IterablePlayer", () => {
       source.getBackfillMessages = originalMethod;
       backfillStarted.resolve();
       await backfillPromise;
-      return [
-        {
-          topic: "foo",
-          receiveTime: { sec: 0, nsec: 1 },
-          message: undefined,
-          sizeInBytes: 0,
-          schemaName: "foo",
-        },
-      ];
+      return [messageEvent({ topic, receiveTime: { sec: 0, nsec: 1 }, schemaName })];
     };
     store.reset(1);
     // emit state
@@ -546,8 +756,9 @@ describe("IterablePlayer", () => {
   });
 
   it("provides error message for inconsistent topic datatypes", async () => {
-    class DuplicateTopicsSource implements IIterableSource {
-      public async initialize(): Promise<Initalization> {
+    class DuplicateTopicsSource implements IDeserializedIterableSource {
+      public readonly sourceType = "deserialized";
+      public async initialize(): Promise<Initialization> {
         return {
           start: { sec: 0, nsec: 0 },
           end: { sec: 1, nsec: 0 },
@@ -557,7 +768,7 @@ describe("IterablePlayer", () => {
           ],
           topicStats: new Map(),
           profile: undefined,
-          problems: [],
+          alerts: [],
           datatypes: new Map([
             ["B", { name: "B", definitions: [] }],
             ["C", { name: "C", definitions: [] }],
@@ -584,7 +795,7 @@ describe("IterablePlayer", () => {
       await store.add(state);
     });
     const playerStates = await store.done;
-    expect(_.last(playerStates)!.problems).toEqual([
+    expect(_.last(playerStates)!.alerts).toEqual([
       {
         message: "Inconsistent datatype for topic: A",
         severity: "warn",
@@ -602,7 +813,7 @@ describe("IterablePlayer", () => {
       sourceId: "test",
     });
     const store = new PlayerStateStore(4);
-    player.setSubscriptions([{ topic: "foo" }]);
+    player.setSubscriptions([{ topic: defaultTopic }]);
     player.setListener(async (state) => {
       await store.add(state);
     });
@@ -625,7 +836,7 @@ describe("IterablePlayer", () => {
         topicStats: new Map(),
         publishedTopics: new Map<string, Set<string>>(),
       },
-      problems: [],
+      alerts: [],
       capabilities: [PLAYER_CAPABILITIES.setSpeed, PLAYER_CAPABILITIES.playbackControl],
       profile: undefined,
       presence: PlayerPresence.PRESENT,
@@ -657,6 +868,133 @@ describe("IterablePlayer", () => {
     await player.isClosed;
   });
 
+  it("should detect high frequency topics during initialization", async () => {
+    class HighFrequencyTopicSource implements IDeserializedIterableSource {
+      public readonly sourceType = "deserialized";
+      public async initialize(): Promise<Initialization> {
+        const topicStats = new Map();
+        topicStats.set("high-freq-topic", {
+          numMessages: 6000, // High message count
+          firstMessageTime: { sec: 0, nsec: 0 },
+          lastMessageTime: { sec: 1, nsec: 0 },
+        });
+
+        return {
+          start: { sec: 0, nsec: 0 },
+          end: { sec: 1, nsec: 0 },
+          topics: [{ name: "high-freq-topic", schemaName: "std_msgs/String" }],
+          topicStats,
+          profile: undefined,
+          alerts: [],
+          datatypes: new Map(),
+          publishersByTopic: new Map(),
+        };
+      }
+
+      public async *messageIterator() {}
+      public async getBackfillMessages() {
+        return [];
+      }
+    }
+
+    const source = new HighFrequencyTopicSource();
+    const player = new IterablePlayer({
+      source,
+      enablePreload: false,
+      sourceId: "test",
+    });
+
+    const store = new PlayerStateStore(4);
+    player.setListener(async (state) => {
+      await store.add(state);
+    });
+
+    const playerStates = await store.done;
+    expect(_.last(playerStates)!.alerts).toEqual([
+      {
+        severity: HIGH_FREQUENCY_ALERT.severity,
+        message: HIGH_FREQUENCY_ALERT.message,
+        error: expect.any(Error),
+      },
+    ]);
+
+    player.close();
+    await player.isClosed;
+
+    (console.warn as jest.Mock).mockClear();
+  });
+
+  it("should only call isTopicHighFrequency once even with multiple high frequency topics", async () => {
+    const isTopicHighFrequencySpy = jest.spyOn(highFrequencyUtils, "isTopicHighFrequency");
+
+    class MultiHighFreqTopicsSource implements IDeserializedIterableSource {
+      public readonly sourceType = "deserialized";
+      public async initialize(): Promise<Initialization> {
+        const topicStats = new Map();
+        // Add multiple high frequency topics
+        topicStats.set("high-freq-topic-1", {
+          numMessages: 6000,
+          firstMessageTime: { sec: 0, nsec: 0 },
+          lastMessageTime: { sec: 1, nsec: 0 },
+        });
+        topicStats.set("high-freq-topic-2", {
+          numMessages: 7000,
+          firstMessageTime: { sec: 0, nsec: 0 },
+          lastMessageTime: { sec: 1, nsec: 0 },
+        });
+
+        return {
+          start: { sec: 0, nsec: 0 },
+          end: { sec: 1, nsec: 0 },
+          topics: [
+            { name: "high-freq-topic-1", schemaName: "std_msgs/String" },
+            { name: "high-freq-topic-2", schemaName: "std_msgs/String" },
+          ],
+          topicStats,
+          profile: undefined,
+          alerts: [],
+          datatypes: new Map(),
+          publishersByTopic: new Map(),
+        };
+      }
+
+      public async *messageIterator() {}
+      public async getBackfillMessages() {
+        return [];
+      }
+    }
+
+    const source = new MultiHighFreqTopicsSource();
+    const player = new IterablePlayer({
+      source,
+      enablePreload: false,
+      sourceId: "test",
+    });
+
+    const store = new PlayerStateStore(4);
+    player.setListener(async (state) => {
+      await store.add(state);
+    });
+
+    const playerStates = await store.done;
+
+    expect(isTopicHighFrequencySpy).toHaveBeenCalledTimes(1);
+    expect(_.last(playerStates)!.alerts).toEqual([
+      {
+        severity: HIGH_FREQUENCY_ALERT.severity,
+        message: HIGH_FREQUENCY_ALERT.message,
+        error: expect.any(Error),
+      },
+    ]);
+
+    player.close();
+    await player.isClosed;
+
+    isTopicHighFrequencySpy.mockRestore();
+
+    (console.warn as jest.Mock).mockClear();
+  });
+
   it("should start a new iterator mid-tick when old iterator finishes", async () => {
     const source = new TestSource();
     const player = new IterablePlayer({
@@ -682,13 +1020,9 @@ describe("IterablePlayer", () => {
 
       yield {
         type: "message-event",
-        msgEvent: {
-          topic: "foo",
+        msgEvent: messageEvent({
           receiveTime: { sec: 0, nsec: 99000001 },
-          message: undefined,
-          sizeInBytes: 0,
-          schemaName: "foo",
-        },
+        }),
       };
     };
 
@@ -698,7 +1032,7 @@ describe("IterablePlayer", () => {
 
     {
       const playerStates = await store.done;
-      expect(playerStates.length).toEqual(1);
+      expect(playerStates).toHaveLength(1);
     }
 
     player.close();
@@ -731,13 +1065,9 @@ describe("IterablePlayer", () => {
 
       yield {
         type: "message-event",
-        msgEvent: {
-          topic: "foo",
+        msgEvent: messageEvent({
           receiveTime: { sec: 0, nsec: 99000001 },
-          message: undefined,
-          sizeInBytes: 0,
-          schemaName: "foo",
-        },
+        }),
       };
     };
 
@@ -757,6 +1087,8 @@ describe("IterablePlayer", () => {
 
   it("should make a new message iterator when topic subscriptions change", async () => {
     const source = new TestSource();
+    const topic = BasicBuilder.string();
+    const secondTopic = BasicBuilder.string();
     const player = new IterablePlayer({
       source,
       enablePreload: false,
@@ -766,7 +1098,7 @@ describe("IterablePlayer", () => {
     const messageIteratorSpy = jest.spyOn(source, "messageIterator");
 
     const store = new PlayerStateStore(4);
-    player.setSubscriptions([{ topic: "foo" }]);
+    player.setSubscriptions([{ topic }]);
     player.setListener(async (state) => {
       await store.add(state);
     });
@@ -776,7 +1108,7 @@ describe("IterablePlayer", () => {
 
     // Call set subscriptions and add a new topic
     store.reset(2);
-    player.setSubscriptions([{ topic: "foo" }, { topic: "bar" }]);
+    player.setSubscriptions([{ topic }, { topic: secondTopic }]);
 
     await store.done;
 
@@ -785,7 +1117,7 @@ describe("IterablePlayer", () => {
         {
           start: { sec: 0, nsec: 0 },
           end: { sec: 1, nsec: 0 },
-          topics: mockTopicSelection("foo"),
+          topics: mockTopicSelection(topic),
           consumptionType: "partial",
         },
       ],
@@ -793,7 +1125,7 @@ describe("IterablePlayer", () => {
         {
           start: { sec: 0, nsec: 99000001 },
           end: { sec: 1, nsec: 0 },
-          topics: mockTopicSelection("bar", "foo"),
+          topics: mockTopicSelection(secondTopic, topic),
           consumptionType: "partial",
         },
       ],
@@ -803,8 +1135,76 @@ describe("IterablePlayer", () => {
     await player.isClosed;
   });
 
+  it("strips unauthorized sampling requests from direct subscriptions", async () => {
+    const source = new TestSource();
+    const topic = BasicBuilder.string();
+    const player = new IterablePlayer({
+      source,
+      enablePreload: false,
+      sourceId: "test",
+    });
+
+    const messageIteratorSpy = jest.spyOn(source, "messageIterator");
+    player.setSubscriptions([
+      {
+        topic,
+        samplingRequest: { mode: "latest-per-render-tick" },
+      },
+    ]);
+
+    const store = new PlayerStateStore(4);
+    player.setListener(async (state) => {
+      await store.add(state);
+    });
+    await store.done;
+
+    expect(messageIteratorSpy).toHaveBeenCalledTimes(1);
+    const messageIteratorArgs = messageIteratorSpy.mock.calls[0]?.[0];
+    expect(messageIteratorArgs?.topics.get(topic)).toEqual({ topic });
+
+    player.close();
+    await player.isClosed;
+  });
+
+  it("keeps authorized sampling requests from trusted subscriptions", async () => {
+    const source = new TestSource();
+    const topic = BasicBuilder.string();
+    const player = new IterablePlayer({
+      source,
+      enablePreload: false,
+      sourceId: "test",
+    });
+
+    const messageIteratorSpy = jest.spyOn(source, "messageIterator");
+    player.setSubscriptions([
+      {
+        topic,
+        samplingRequest: { mode: "latest-per-render-tick" },
+        samplingAuthorized: true,
+      } as InternalSubscribePayload,
+    ]);
+
+    const store = new PlayerStateStore(4);
+    player.setListener(async (state) => {
+      await store.add(state);
+    });
+    await store.done;
+
+    expect(messageIteratorSpy).toHaveBeenCalledTimes(1);
+    const messageIteratorArgs = messageIteratorSpy.mock.calls[0]?.[0];
+    expect(messageIteratorArgs?.topics.get(topic)).toEqual({
+      topic,
+      samplingRequest: { mode: "latest-per-render-tick" },
+      samplingAuthorized: true,
+    });
+
+    player.close();
+    await player.isClosed;
+  });
+
   it("should allow changing subscriptions when player in start-play state", async () => {
     const source = new TestSource();
+    const topic = BasicBuilder.string();
     const player = new IterablePlayer({
       source,
       enablePreload: false,
@@ -819,7 +1219,7 @@ describe("IterablePlayer", () => {
     });
     // Wait for player to be in start-play state
     await store.done;
-    player.setSubscriptions([{ topic: "foo" }]);
+    player.setSubscriptions([{ topic }]);
 
     // Wait for player's initial setup to complete (seek-backfill + idle)
     store.reset(2);
@@ -830,7 +1230,7 @@ describe("IterablePlayer", () => {
         {
           start: { sec: 0, nsec: 99000001 },
           end: { sec: 1, nsec: 0 },
-          topics: mockTopicSelection("foo"),
+          topics: mockTopicSelection(topic),
           consumptionType: "partial",
         },
       ],
@@ -851,7 +1251,7 @@ describe("IterablePlayer", () => {
     const metadata = player.getMetadata();
 
     // At first, metadata is empty because it's initialized in an async way.
-    expect(metadata.length).toBe(0);
+    expect(metadata).toHaveLength(0);
 
     // Setup store to player update to be in start-play state
     const store = new PlayerStateStore(4);
@@ -862,10 +1262,303 @@ describe("IterablePlayer", () => {
     await store.done;
 
     const metadataInitialized = player.getMetadata();
-    expect(metadataInitialized.length).toBe(1);
+    expect(metadataInitialized).toHaveLength(1);
     expect(() => {
       // @ts-expect-error because the array is type as readonly
       metadataInitialized.pop();
     }).toThrow();
+  });
+
+  describe("getBatchIterator", () => {
+    it("should return undefined when messageRangeSource is not available", () => {
+      const source = new TestSource();
+      const player = new IterablePlayer({
+        source,
+        enablePreload: false,
+        sourceId: "test",
+      });
+
+      // Before initialization, messageRangeSource should be undefined
+      const iterator = player.getBatchIterator("test_topic");
+      expect(iterator).toBeUndefined();
+    });
+
+    it("should create correct topic selection and call messageIterator", async () => {
+      const source = new TestSource();
+
+      // Mock the messageIterator method to track calls
+      const mockMessageIterator = jest.fn().mockImplementation(async function* () {
+        yield {
+          type: "message-event",
+          msgEvent: messageEvent({
+            topic: "test_topic",
+            receiveTime: { sec: 1, nsec: 0 },
+            message: { data: BasicBuilder.string() },
+            sizeInBytes: 100,
+            schemaName: "test_schema",
+          }),
+        };
+      });
+
+      source.messageIterator = mockMessageIterator;
+
+      const player = new IterablePlayer({
+        source,
+        enablePreload: false,
+        sourceId: "test",
+      });
+
+      // Wait for initialization
+      const store = new PlayerStateStore(4);
+      player.setListener(async (state) => {
+        await store.add(state);
+      });
+      await store.done;
+
+      // Now getBatchIterator should work
+      const iterator = player.getBatchIterator("test_topic");
+      expect(iterator).toBeDefined();
+
+      // Consume one item from the iterator to verify it works
+      expect(iterator).toBeDefined();
+      const result = await iterator!.next();
+      expect(result.done).toBe(false);
+      // Verify we got a message event
+      expect((result as any).value.type).toBe("message-event");
+
+      // Verify that messageIterator was called with correct parameters
+      expect(mockMessageIterator).toHaveBeenCalledWith({
+        topics: new Map([["test_topic", { topic: "test_topic" }]]),
+        consumptionType: "full",
+      });
+    });
+
+    it("should handle multiple topics correctly", async () => {
+      const source = new TestSource();
+
+      const mockMessageIterator = jest.fn().mockImplementation(async function* () {
+        yield {
+          type: "message-event",
+          msgEvent: messageEvent({
+            topic: "topic1",
+            receiveTime: { sec: 1, nsec: 0 },
+            message: { data: BasicBuilder.string() },
+            sizeInBytes: 100,
+            schemaName: "test_schema",
+          }),
+        };
+        yield {
+          type: "message-event",
+          msgEvent: messageEvent({
+            topic: "topic2",
+            receiveTime: { sec: 2, nsec: 0 },
+            message: { data: BasicBuilder.string() },
+            sizeInBytes: 100,
+            schemaName: "test_schema",
+          }),
+        };
+      });
+
+      source.messageIterator = mockMessageIterator;
+
+      const player = new IterablePlayer({
+        source,
+        enablePreload: false,
+        sourceId: "test",
+      });
+
+      // Wait for initialization
+      const store = new PlayerStateStore(4);
+      player.setListener(async (state) => {
+        await store.add(state);
+      });
+      await store.done;
+
+      // Test getBatchIterator for topic1
+      const iterator1 = player.getBatchIterator("topic1");
+      expect(iterator1).toBeDefined();
+
+      // Test getBatchIterator for topic2
+      const iterator2 = player.getBatchIterator("topic2");
+      expect(iterator2).toBeDefined();
+
+      // Verify calls with different topics
+      expect(mockMessageIterator).toHaveBeenCalledWith({
+        topics: new Map([["topic1", { topic: "topic1" }]]),
+        consumptionType: "full",
+      });
+
+      expect(mockMessageIterator).toHaveBeenCalledWith({
+        topics: new Map([["topic2", { topic: "topic2" }]]),
+        consumptionType: "full",
+      });
+    });
+
+    it("should handle iterator that yields different result types", async () => {
+      const source = new TestSource();
+
+      const mockMessageIterator = jest.fn().mockImplementation(async function* () {
+        yield {
+          type: "message-event",
+          msgEvent: messageEvent({
+            topic: "test_topic",
+            receiveTime: { sec: 1, nsec: 0 },
+            message: { data: BasicBuilder.string() },
+            sizeInBytes: 100,
+            schemaName: "test_schema",
+          }),
+        };
+        yield {
+          type: "alert",
+          connectionId: 1,
+          alert: { severity: "info", message: "test alert" },
+        };
+        yield {
+          type: "stamp",
+          stamp: { sec: 1, nsec: 500000000 },
+        };
+      });
+
+      source.messageIterator = mockMessageIterator;
+
+      const player = new IterablePlayer({
+        source,
+        enablePreload: false,
+        sourceId: "test",
+      });
+
+      // Wait for initialization
+      const store = new PlayerStateStore(4);
+      player.setListener(async (state) => {
+        await store.add(state);
+      });
+      await store.done;
+
+      const iterator = player.getBatchIterator("test_topic");
+      expect(iterator).toBeDefined();
+
+      const results = [];
+      for await (const result of iterator!) {
+        results.push(result);
+      }
+
+      expect(results).toHaveLength(3);
+      expect(results[0]?.type).toBe("message-event");
+      expect(results[1]?.type).toBe("alert");
+      expect(results[2]?.type).toBe("stamp");
+    });
+
+    it("should handle empty iterator", async () => {
+      const source = new TestSource();
+
+      const mockMessageIterator = jest.fn().mockImplementation(async function* () {
+        // Empty iterator
+      });
+
+      source.messageIterator = mockMessageIterator;
+
+      const player = new IterablePlayer({
+        source,
+        enablePreload: false,
+        sourceId: "test",
+      });
+
+      // Wait for initialization
+      const store = new PlayerStateStore(4);
+      player.setListener(async (state) => {
+        await store.add(state);
+      });
+      await store.done;
+
+      const iterator = player.getBatchIterator("test_topic");
+      expect(iterator).toBeDefined();
+
+      const result = await iterator!.next();
+      expect(result.done).toBe(true);
+    });
+
+    it("should handle iterator errors gracefully", async () => {
+      const source = new TestSource();
+
+      const mockMessageIterator = jest.fn().mockImplementation(async function* () {
+        yield {
+          type: "message-event",
+          msgEvent: messageEvent({
+            topic: "test_topic",
+            receiveTime: { sec: 1, nsec: 0 },
+            message: { data: BasicBuilder.string() },
+            sizeInBytes: 100,
+            schemaName: "test_schema",
+          }),
+        };
+        throw new Error("Iterator error");
+      });
+
+      source.messageIterator = mockMessageIterator;
+
+      const player = new IterablePlayer({
+        source,
+        enablePreload: false,
+        sourceId: "test",
+      });
+
+      // Wait for initialization
+      const store = new PlayerStateStore(4);
+      player.setListener(async (state) => {
+        await store.add(state);
+      });
+      await store.done;
+
+      const iterator = player.getBatchIterator("test_topic");
+      expect(iterator).toBeDefined();
+
+      // Should get first message
+      const result1 = await iterator!.next();
+      expect(result1.done).toBe(false);
+      expect(result1.value.type).toBe("message-event");
+
+      // Should throw on second call
+      await expect(iterator!.next()).rejects.toThrow("Iterator error");
+    });
+
+    it("should use full consumption type", async () => {
+      const source = new TestSource();
+
+      const mockMessageIterator = jest.fn().mockImplementation(async function* () {
+        yield {
+          type: "message-event",
+          msgEvent: messageEvent({
+            topic: "test_topic",
+            receiveTime: { sec: 1, nsec: 0 },
+            message: { data: BasicBuilder.string() },
+            sizeInBytes: 100,
+            schemaName: "test_schema",
+          }),
+        };
+      });
+
+      source.messageIterator = mockMessageIterator;
+
+      const player = new IterablePlayer({
+        source,
+        enablePreload: false,
+        sourceId: "test",
+      });
+
+      // Wait for initialization
+      const store = new PlayerStateStore(4);
+      player.setListener(async (state) => {
+        await store.add(state);
+      });
+      await store.done;
+
+      player.getBatchIterator("test_topic");
+
+      // Verify that consumptionType is "full"
+      expect(mockMessageIterator).toHaveBeenCalledWith({
+        topics: expect.any(Map),
+        consumptionType: "full",
+      });
+    });
   });
 });

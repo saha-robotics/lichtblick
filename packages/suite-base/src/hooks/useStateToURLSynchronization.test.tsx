@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v2.0. If a copy of the MPL was not distributed with this
@@ -53,12 +53,12 @@ describe("useStateToURLSynchronization", () => {
     expect(spy).toHaveBeenCalledWith(
       undefined,
       "",
-      "http://localhost/?time=1970-01-01T00%3A00%3A01.000000001Z",
+      "http://localhost/?time=1970-01-01T00:00:01.000000001Z",
     );
     expect(spy).toHaveBeenLastCalledWith(
       undefined,
       "",
-      "http://localhost/?ds=test-source&ds.a=one&ds.b=two&time=1970-01-01T00%3A00%3A01.000000001Z",
+      "http://localhost/?ds=test-source&ds.a=one&ds.b=two&time=1970-01-01T00:00:01.000000001Z",
     );
 
     (useMessagePipeline as jest.Mock).mockImplementation((selector) =>
@@ -79,7 +79,75 @@ describe("useStateToURLSynchronization", () => {
     expect(spy).toHaveBeenLastCalledWith(
       undefined,
       "",
-      "http://localhost/?ds=test-source2&ds.b=two&ds.c=three&time=1970-01-01T00%3A00%3A01.000000001Z",
+      "http://localhost/?ds=test-source2&ds.b=two&ds.c=three&time=1970-01-01T00:00:01.000000001Z",
     );
+  });
+
+  it("suppresses ds param writeback when mcap-bundle is present in the URL", () => {
+    const spy = jest.spyOn(window.history, "replaceState");
+
+    // Set the URL to include mcap-bundle
+    window.history.pushState({}, "", "http://localhost/?mcap-bundle=test-session-123");
+
+    (useMessagePipeline as jest.Mock).mockImplementation((selector) =>
+      selector({
+        playerState: {
+          activeData: {
+            currentTime: { sec: 5, nsec: 0 },
+          },
+          capabilities: ["playbackControl"],
+          urlState: {
+            sourceId: "remote-file",
+            parameters: { url: "http://example.com/file.mcap" },
+          },
+        },
+      }),
+    );
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <EventsProvider>{children}</EventsProvider>
+    );
+
+    renderHook(useStateToURLSynchronization, { wrapper });
+
+    // Should only write time, not ds params
+    const calls = spy.mock.calls;
+    const lastCallUrl = calls[calls.length - 1]?.[2] as string | undefined;
+    expect(lastCallUrl).not.toContain("ds=remote-file");
+    expect(lastCallUrl).not.toContain("ds.url=");
+  });
+
+  it("writes ds params when mcap-bundle is present but empty in the URL", () => {
+    const spy = jest.spyOn(window.history, "replaceState");
+
+    // Set the URL to include an empty mcap-bundle value
+    window.history.pushState({}, "", "http://localhost/?mcap-bundle=");
+
+    (useMessagePipeline as jest.Mock).mockImplementation((selector) =>
+      selector({
+        playerState: {
+          activeData: {
+            currentTime: { sec: 5, nsec: 0 },
+          },
+          capabilities: ["playbackControl"],
+          urlState: {
+            sourceId: "remote-file",
+            parameters: { url: "http://example.com/file.mcap" },
+          },
+        },
+      }),
+    );
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <EventsProvider>{children}</EventsProvider>
+    );
+
+    renderHook(useStateToURLSynchronization, { wrapper });
+
+    // Should write ds params normally since mcap-bundle has no value
+    const calls = spy.mock.calls;
+    const lastCallUrl = calls[calls.length - 1]?.[2] as string | undefined;
+    expect(lastCallUrl).toContain("ds=remote-file");
+    expect(lastCallUrl).toContain("ds.url=");
   });
 });

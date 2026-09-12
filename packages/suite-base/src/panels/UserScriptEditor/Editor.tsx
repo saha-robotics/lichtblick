@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -15,23 +15,25 @@
 //   You may not use this file except in compliance with the License.
 
 import { useTheme } from "@mui/material";
+import { typescript } from "monaco-editor";
 // @ts-expect-error ICodeEditorService does not have type information in the monaco-editor package
 import { ICodeEditorService } from "monaco-editor/esm/vs/editor/browser/services/codeEditorService";
-import * as monacoApi from "monaco-editor/esm/vs/editor/editor.api";
+import * as monacoApi from "monaco-editor/esm/vs/editor/editor.api.js";
 // @ts-expect-error StandaloneService does not have type information in the monaco-editor package
 import { StandaloneServices } from "monaco-editor/esm/vs/editor/standalone/browser/standaloneServices";
 import * as path from "path";
-import { ReactElement, useCallback, useEffect, useRef } from "react";
+import React, { Suspense, ReactElement, useCallback, useEffect, useRef } from "react";
 import MonacoEditor, { EditorDidMount, EditorWillMount } from "react-monaco-editor";
-import { useResizeDetector } from "react-resize-detector";
+import { ResizePayload, useResizeDetector } from "react-resize-detector";
 import { useLatest } from "react-use";
 import { ModuleResolutionKind } from "typescript";
 
+import ErrorBoundary from "@lichtblick/suite-base/components/ErrorBoundary";
 import getPrettifiedCode from "@lichtblick/suite-base/panels/UserScriptEditor/getPrettifiedCode";
 import { Script } from "@lichtblick/suite-base/panels/UserScriptEditor/script";
 import { getUserScriptProjectConfig } from "@lichtblick/suite-base/players/UserScriptPlayer/transformerWorker/typescript/projectConfig";
 import inScreenshotTests from "@lichtblick/suite-base/stories/inScreenshotTests";
-import { DEFAULT_STUDIO_SCRIPT_PREFIX } from "@lichtblick/suite-base/util/globalConstants";
+import { DEFAULT_STUDIO_SCRIPT_PREFIX } from "@lichtblick/suite-base/util/constants";
 import { mightActuallyBePartial } from "@lichtblick/suite-base/util/mightActuallyBePartial";
 
 import { themes } from "./theme";
@@ -97,7 +99,7 @@ const Editor = ({
   const editorTheme = useTheme().palette.mode === "dark" ? "vs-studio-dark" : "vs-studio-light";
 
   React.useEffect(() => {
-    const disposable = monacoApi.languages.typescript.typescriptDefaults.addExtraLib(
+    const disposable = typescript.typescriptDefaults.addExtraLib(
       rosLib,
       `file:///node_modules/@types/${projectConfig.rosLib.fileName}`,
     );
@@ -128,9 +130,8 @@ const Editor = ({
       async (
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         input: any,
-        // eslint-disable-next-line no-restricted-syntax
+
         editor: monacoApi.editor.ICodeEditor | null,
-        // eslint-disable-next-line no-restricted-syntax
       ): Promise<monacoApi.editor.ICodeEditor | null> => {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
         const requestedModel = monacoApi.editor.getModel(input.resource);
@@ -148,7 +149,7 @@ const Editor = ({
         ) {
           // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
           gotoSelection(editor, input.options.selection);
-          // eslint-disable-next-line no-restricted-syntax
+
           return null;
         }
 
@@ -211,11 +212,11 @@ const Editor = ({
       }
 
       // Set eager model sync to enable intellisense between the user code and utility files
-      monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true);
-      monaco.languages.typescript.javascriptDefaults.setEagerModelSync(true);
+      typescript.typescriptDefaults.setEagerModelSync(true);
+      typescript.javascriptDefaults.setEagerModelSync(true);
 
       monaco.languages.registerDocumentFormattingEditProvider("typescript", {
-        provideDocumentFormattingEdits: async (model) => {
+        provideDocumentFormattingEdits: async (model: monacoApi.editor.ITextModel) => {
           try {
             return [
               {
@@ -232,7 +233,7 @@ const Editor = ({
 
       // Disable validation in screenshots to avoid flaky tests
       if (inScreenshotTests()) {
-        monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+        typescript.typescriptDefaults.setDiagnosticsOptions({
           noSyntaxValidation: true,
           noSemanticValidation: true,
         });
@@ -247,19 +248,19 @@ const Editor = ({
       // typescript language service does not expose such a method.
       projectConfig.declarations.forEach((lib) => {
         if (lib.fileName.startsWith("@foxglove/schemas")) {
-          monaco.languages.typescript.typescriptDefaults.addExtraLib(
+          typescript.typescriptDefaults.addExtraLib(
             lib.sourceCode,
             `file:///node_modules/${lib.fileName}`,
           );
         } else {
-          monaco.languages.typescript.typescriptDefaults.addExtraLib(
+          typescript.typescriptDefaults.addExtraLib(
             lib.sourceCode,
             `file:///node_modules/@types/${lib.fileName}`,
           );
         }
       });
-      monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-        ...monaco.languages.typescript.typescriptDefaults.getCompilerOptions(),
+      typescript.typescriptDefaults.setCompilerOptions({
+        ...typescript.typescriptDefaults.getCompilerOptions(),
         // This is needed for @foxglove/schemas to resolve correctly in the editor.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         moduleResolution: ModuleResolutionKind.NodeNext as any,
@@ -330,10 +331,11 @@ const Editor = ({
     [latestSetScriptCode],
   );
 
-  const onResize = useCallback((width?: number, height?: number) => {
-    if (width != undefined && height != undefined) {
-      editorRef.current?.layout({ width, height });
+  const onResize = useCallback(({ width, height }: ResizePayload) => {
+    if (width == undefined) {
+      return;
     }
+    editorRef.current?.layout({ width, height });
   }, []);
 
   // monaco editor builtin auto layout uses an interval to adjust size to the parent component
@@ -352,16 +354,23 @@ const Editor = ({
     return ReactNull;
   }
 
+  // The ErrorBoundary is required to properly capture runtime errors from Monaco Editor.
+  // Without it, TypeScript or Monaco-related errors (e.g., type mismatches or input availability issues)
+  // may not appear in the "Problems" tab. Do not remove this wrapper.
   return (
     <div ref={sizeRef} style={{ width: "100%", height: "100%" }}>
-      <MonacoEditor
-        language="typescript"
-        theme={editorTheme}
-        editorWillMount={willMount}
-        editorDidMount={didMount}
-        options={options}
-        onChange={onChange}
-      />
+      <ErrorBoundary>
+        <Suspense fallback={<p>Loading user script editor</p>}>
+          <MonacoEditor
+            language="typescript"
+            theme={editorTheme}
+            editorWillMount={willMount}
+            editorDidMount={didMount}
+            options={options}
+            onChange={onChange}
+          />
+        </Suspense>
+      </ErrorBoundary>
     </div>
   );
 };

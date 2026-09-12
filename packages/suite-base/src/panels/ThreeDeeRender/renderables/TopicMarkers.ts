@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -40,8 +40,6 @@ export type MarkerTopicUserData = BaseUserData & {
   settings: LayerSettingsMarker;
 };
 
-type PartialMarkerSettings = Partial<LayerSettingsMarker> | undefined;
-
 export class MarkersNamespace {
   public namespace: string;
   public markersById = new Map<number, RenderableMarker>();
@@ -51,8 +49,8 @@ export class MarkersNamespace {
     this.namespace = namespace;
 
     // Set the initial settings from default values merged with any user settings
-    const topicSettings = renderer.config.topics[topic] as PartialMarkerSettings;
-    const userSettings = topicSettings?.namespaces?.[namespace];
+    const topicSettings = (renderer.config.topics[topic] ?? {}) as Partial<LayerSettingsMarker>;
+    const userSettings = topicSettings.namespaces?.[namespace];
     this.settings = { ...DEFAULT_NAMESPACE_SETTINGS, ...userSettings };
   }
 }

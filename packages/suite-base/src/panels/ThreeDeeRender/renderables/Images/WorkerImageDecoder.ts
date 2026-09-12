@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -22,7 +22,7 @@ import { Image as RosImage } from "../../ros";
  * back to the main thread.
  */
 
-type WorkerService = (typeof import("./WorkerImageDecoder.worker"))["service"];
+type WorkerService = typeof import("./WorkerImageDecoder.worker")["service"];
 export class WorkerImageDecoder {
   #remote: Comlink.Remote<WorkerService>;
   #dispose: () => void;

@@ -1,11 +1,14 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { PanelExtensionContext } from "@lichtblick/suite";
+import { Immutable, MessageConverterAlert, PanelExtensionContext } from "@lichtblick/suite";
+import { IteratorResult } from "@lichtblick/suite-base/players/IterablePlayer/IIterableSource";
+import { PlayerAlert, Topic } from "@lichtblick/suite-base/players/types";
+import { InstalledMessageConverter } from "@lichtblick/suite-base/types/messageConverters";
 
 /**
  * An asset loaded from Studio's asset manager.
@@ -84,4 +87,27 @@ export type BuiltinPanelExtensionContext = {
    * indicates that the panel does not accept any dragged message paths.
    */
   unstable_setMessagePathDropConfig: (config: MessagePathDropConfig | undefined) => void;
+
+  /**
+   * Set or clear an app-level alert on behalf of this panel. The alert is surfaced in the app
+   * notifications UI. `alertId` scopes the alert within this panel; alerts are namespaced per
+   * panel and automatically cleared when the panel unmounts. Passing `undefined` for `alert`
+   * clears the alert with the given `alertId`.
+   */
+  unstable_setAlert?: (alertId: string, alert: Immutable<PlayerAlert> | undefined) => void;
 } & PanelExtensionContext;
+
+export type MessageConverterAlertHandler = (
+  converter: InstalledMessageConverter,
+  alert: MessageConverterAlert,
+  alertId?: string,
+) => void;
+
+export type CreateMessageRangeIteratorParams = {
+  topic: string;
+  convertTo?: string;
+  rawBatchIterator: AsyncIterableIterator<Readonly<IteratorResult>>;
+  sortedTopics: readonly Topic[];
+  messageConverters: readonly InstalledMessageConverter[];
+  emitAlert?: MessageConverterAlertHandler;
+};

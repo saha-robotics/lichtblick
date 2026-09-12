@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -9,7 +9,7 @@ import { createContext } from "react";
 import { StoreApi, useStore } from "zustand";
 
 import { useGuaranteedContext } from "@lichtblick/hooks";
-import { AppSettingsTab } from "@lichtblick/suite-base/components/AppSettingsDialog/AppSettingsDialog";
+import { AppSettingsTab } from "@lichtblick/suite-base/components/AppSettingsDialog/types";
 import { DataSourceDialogItem } from "@lichtblick/suite-base/components/DataSourceDialog";
 import { IDataSourceFactory } from "@lichtblick/suite-base/context/PlayerSelectionContext";
 
@@ -28,7 +28,7 @@ export const SidebarItemKeys = [
 ] as const;
 export type SidebarItemKey = (typeof SidebarItemKeys)[number];
 
-export const LeftSidebarItemKeys = ["panel-settings", "topics", "problems", "layouts"] as const;
+export const LeftSidebarItemKeys = ["panel-settings", "topics", "alerts", "layouts"] as const;
 export type LeftSidebarItemKey = (typeof LeftSidebarItemKeys)[number];
 
 export const RightSidebarItemKeys = [
@@ -55,8 +55,15 @@ export type WorkspaceContextStore = {
     active: undefined | string;
     shown: string[];
   };
+  layoutBrowser: {
+    expandedSections: {
+      personal: boolean;
+      shared: boolean;
+    };
+  };
   playbackControls: {
     repeat: boolean;
+    syncInstances: boolean;
   };
   sidebars: {
     left: {
@@ -79,6 +86,11 @@ export const WorkspaceContext = createContext<undefined | StoreApi<WorkspaceCont
 WorkspaceContext.displayName = "WorkspaceContext";
 
 export const WorkspaceStoreSelectors = {
+  selectLayoutSectionExpanded: (
+    store: WorkspaceContextStore,
+  ): WorkspaceContextStore["layoutBrowser"]["expandedSections"] => {
+    return store.layoutBrowser.expandedSections;
+  },
   selectPanelSettingsOpen: (store: WorkspaceContextStore): boolean => {
     return store.sidebars.left.open && store.sidebars.left.item === "panel-settings";
   },

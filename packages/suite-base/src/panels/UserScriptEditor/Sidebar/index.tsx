@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -11,7 +11,7 @@ import {
   Toolbox24Regular,
 } from "@fluentui/react-icons";
 import { Divider, Paper, Tab, Tabs, tabClasses, tabsClasses } from "@mui/material";
-import * as monacoApi from "monaco-editor/esm/vs/editor/editor.api";
+import * as monacoApi from "monaco-editor/esm/vs/editor/editor.api.js";
 import { SyntheticEvent, useCallback, useMemo, useState } from "react";
 import tc from "tinycolor2";
 import { makeStyles } from "tss-react/mui";

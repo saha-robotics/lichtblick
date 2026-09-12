@@ -1,45 +1,28 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { Menu, PaperProps, PopoverPosition, PopoverReference } from "@mui/material";
+import { Menu, PaperProps } from "@mui/material";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { makeStyles } from "tss-react/mui";
 
+import { useStyles } from "@lichtblick/suite-base/components/AppBar/AppMenu.style";
 import TextMiddleTruncate from "@lichtblick/suite-base/components/TextMiddleTruncate";
+import { LICHTBLICK_DOCUMENTATION_LINK } from "@lichtblick/suite-base/constants/documentation";
 import { usePlayerSelection } from "@lichtblick/suite-base/context/PlayerSelectionContext";
 import {
   WorkspaceContextStore,
   useWorkspaceStore,
 } from "@lichtblick/suite-base/context/Workspace/WorkspaceContext";
 import { useWorkspaceActions } from "@lichtblick/suite-base/context/Workspace/useWorkspaceActions";
+import { useLayoutTransfer } from "@lichtblick/suite-base/hooks/useLayoutTransfer";
 import { formatKeyboardShortcut } from "@lichtblick/suite-base/util/formatKeyboardShortcut";
 
 import { NestedMenuItem } from "./NestedMenuItem";
-import { AppBarMenuItem } from "./types";
-
-export type AppMenuProps = {
-  handleClose: () => void;
-  anchorEl?: HTMLElement;
-  anchorReference?: PopoverReference;
-  anchorPosition?: PopoverPosition;
-  disablePortal?: boolean;
-  open: boolean;
-};
-
-const useStyles = makeStyles()({
-  menuList: {
-    minWidth: 180,
-    maxWidth: 220,
-  },
-  truncate: {
-    alignSelf: "center !important",
-  },
-});
+import { AppBarMenuItem, AppMenuProps } from "./types";
 
 const selectLeftSidebarOpen = (store: WorkspaceContextStore) => store.sidebars.left.open;
 const selectRightSidebarOpen = (store: WorkspaceContextStore) => store.sidebars.right.open;
@@ -55,7 +38,7 @@ export function AppMenu(props: AppMenuProps): React.JSX.Element {
 
   const leftSidebarOpen = useWorkspaceStore(selectLeftSidebarOpen);
   const rightSidebarOpen = useWorkspaceStore(selectRightSidebarOpen);
-  const { sidebarActions, dialogActions, layoutActions } = useWorkspaceActions();
+  const { sidebarActions, dialogActions } = useWorkspaceActions();
 
   const handleNestedMenuClose = useCallback(() => {
     setNestedMenu(undefined);
@@ -65,6 +48,22 @@ export function AppMenu(props: AppMenuProps): React.JSX.Element {
   const handleItemPointerEnter = useCallback((id: string) => {
     setNestedMenu(id);
   }, []);
+
+  const { importLayout, exportLayout } = useLayoutTransfer();
+
+  const runLayoutAction = useCallback(
+    (action: () => Promise<unknown>) => {
+      void (async () => {
+        try {
+          await action();
+          handleNestedMenuClose();
+        } catch (err: unknown) {
+          console.error(err);
+        }
+      })();
+    },
+    [handleNestedMenuClose],
+  );
 
   // FILE
 
@@ -82,7 +81,7 @@ export function AppMenu(props: AppMenuProps): React.JSX.Element {
       },
       {
         type: "item",
-        label: t("openLocalFile"),
+        label: t("openLocalFiles"),
         key: "open-file",
         shortcut: formatKeyboardShortcut("O", ["Meta"]),
         dataTestId: "menu-item-open-local-file",
@@ -163,8 +162,7 @@ export function AppMenu(props: AppMenuProps): React.JSX.Element {
         label: t("importLayoutFromFile"),
         key: "import-layout",
         onClick: () => {
-          layoutActions.importFromFile();
-          handleNestedMenuClose();
+          runLayoutAction(importLayout);
         },
       },
       {
@@ -172,16 +170,17 @@ export function AppMenu(props: AppMenuProps): React.JSX.Element {
         label: t("exportLayoutToFile"),
         key: "export-layout",
         onClick: () => {
-          layoutActions.exportToFile();
-          handleNestedMenuClose();
+          runLayoutAction(exportLayout);
         },
       },
     ],
     [
+      exportLayout,
       handleNestedMenuClose,
-      layoutActions,
+      importLayout,
       leftSidebarOpen,
       rightSidebarOpen,
+      runLayoutAction,
       sidebarActions.left,
       sidebarActions.right,
       t,
@@ -200,13 +199,20 @@ export function AppMenu(props: AppMenuProps): React.JSX.Element {
     handleNestedMenuClose();
   }, [dialogActions.dataSource, handleNestedMenuClose]);
 
+  const onDocsClick = useCallback(() => {
+    window.open(LICHTBLICK_DOCUMENTATION_LINK, "_blank", "noopener,noreferrer");
+    handleNestedMenuClose();
+  }, [handleNestedMenuClose]);
+
   const helpItems = useMemo<AppBarMenuItem[]>(
     () => [
       { type: "item", key: "about", label: t("about"), onClick: onAboutClick },
       { type: "divider" },
+      { type: "item", key: "docs", label: t("documentation"), onClick: onDocsClick },
+      { type: "divider" },
       { type: "item", key: "demo", label: t("exploreSampleData"), onClick: onDemoClick },
     ],
-    [onAboutClick, onDemoClick, t],
+    [onAboutClick, onDemoClick, onDocsClick, t],
   );
 
   return (
@@ -220,16 +226,16 @@ export function AppMenu(props: AppMenuProps): React.JSX.Element {
         open={open}
         disableAutoFocusItem
         onClose={handleNestedMenuClose}
-        MenuListProps={{
-          "aria-labelledby": "app-menu-button",
-          dense: true,
-          className: classes.menuList,
-        }}
-        PaperProps={
-          {
+        slotProps={{
+          list: {
+            "aria-labelledby": "app-menu-button",
+            dense: true,
+            className: classes.menuList,
+          },
+          paper: {
             "data-tourid": "app-menu",
-          } as Partial<PaperProps & { "data-tourid"?: string }>
-        }
+          } as Partial<PaperProps & { "data-tourid"?: string }>,
+        }}
       >
         <NestedMenuItem
           onPointerEnter={handleItemPointerEnter}
