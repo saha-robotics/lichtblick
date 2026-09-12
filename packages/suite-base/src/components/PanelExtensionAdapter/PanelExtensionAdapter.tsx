@@ -136,6 +136,45 @@ function selectInstalledMessageConverters(state: ExtensionCatalog) {
 }
 
 type RenderFn = NonNullable<PanelExtensionContext["onRender"]>;
+
+/**
+ * The context methods that register something for this panel in the adapter or
+ * the message pipeline: a subscription, watched fields, publishers, the settings
+ * tree, the title, alerts. A re-initialized panel inherits all of that under the
+ * same panel id, so a torn-down initialization calling them would undo its
+ * successor's registrations. Queries and actions on the data source (seeking,
+ * publishing, service calls, schema lookups) are left alone.
+ */
+const INITIALIZATION_SCOPED_METHODS = [
+  "saveState",
+  "watch",
+  "subscribe",
+  "unsubscribeAll",
+  "advertise",
+  "unadvertise",
+  "subscribeAppSettings",
+  "updatePanelSettingsEditor",
+  "setDefaultPanelTitle",
+  "unstable_setAlert",
+  "unstable_setMessagePathDropConfig",
+] as const;
+
+/** A copy of the context whose registration methods do nothing once `isActive` turns false. */
+function bindToInitialization<T extends object>(context: T, isActive: () => boolean): T {
+  const bound = { ...context } as Record<string, unknown>;
+  for (const key of INITIALIZATION_SCOPED_METHODS) {
+    const method = bound[key];
+    if (typeof method === "function") {
+      bound[key] = (...args: unknown[]) => {
+        if (isActive()) {
+          (method as (...a: unknown[]) => unknown)(...args);
+        }
+      };
+    }
+  }
+  return bound as unknown as T;
+}
+
 /**
  * PanelExtensionAdapter renders a panel extension via initPanel
  *
@@ -813,18 +852,31 @@ function PanelExtensionAdapter(
     panelContainerRef.current.appendChild(panelElement);
 
     log.info(`Init panel ${panelId}`);
+    // This initialization's own context, dead once it is torn down. A panel is
+    // re-initialized whenever partialExtensionContext changes - the data
+    // source's profile or capabilities arriving after the layout loaded is
+    // enough - and built-in panels unmount their React root in a microtask
+    // (createSyncRoot). So the previous panel's effect cleanup, which sets
+    // onRender to undefined and calls unsubscribeAll, can run after the new
+    // panel registered both, and would take them away from it: the panel then
+    // never renders again. Calls from a torn-down initialization are dropped.
+    let initializationActive = true;
     const onUnmount = initPanel({
       panelElement,
-      ...partialExtensionContext,
+      ...bindToInitialization(partialExtensionContext, () => initializationActive),
 
       // eslint-disable-next-line no-restricted-syntax
       set onRender(renderFunction: RenderFn | undefined) {
+        if (!initializationActive) {
+          return;
+        }
         setRenderFn(() => renderFunction);
       },
     });
     isPanelInitializedRef.current = true;
 
     return () => {
+      initializationActive = false;
       if (onUnmount) {
         onUnmount();
       }
