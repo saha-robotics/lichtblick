@@ -922,6 +922,82 @@ describe("PanelExtensionAdapter", () => {
     mockRAF.mockRestore();
   });
 
+  it("keeps a re-initialized panel live when the previous initialization tears down late", async () => {
+    // The data source's profile or capabilities arriving after the panel first
+    // initialized re-initializes it. Built-in panels unmount their React root in
+    // a microtask (createSyncRoot), so the old panel's effect cleanup - which
+    // sets onRender to undefined and calls unsubscribeAll - can run after the
+    // new panel has already registered both. Seen as Gauge and Indicator panels
+    // that never update when a websocket source connects after the layout loads.
+    const contexts: PanelExtensionContext[] = [];
+    const renders: number[] = [];
+    const initPanel = jest.fn((context: PanelExtensionContext) => {
+      const generation = contexts.push(context);
+      context.watch("currentTime");
+      context.onRender = (_renderState, done) => {
+        renders.push(generation);
+        done();
+      };
+      context.subscribe([{ topic: "x", preload: false }]);
+    });
+
+    const config = {};
+    const saveConfig = () => {};
+    const mockSetSubscriptions = jest.fn();
+
+    // Stable arrays: a new capabilities array on every render would itself
+    // re-initialize the panel and hide what this test is about.
+    const noCapabilities: string[] = [];
+    const canAdvertise = [PLAYER_CAPABILITIES.advertise];
+
+    const Wrapper = ({
+      capabilities,
+      currentTime,
+    }: {
+      capabilities: string[];
+      currentTime: Time;
+    }) => (
+      <ThemeProvider isDark>
+        <MockPanelContextProvider>
+          <PanelSetup
+            fixture={{
+              capabilities,
+              activeData: { currentTime },
+              setSubscriptions: mockSetSubscriptions,
+            }}
+          >
+            <PanelExtensionAdapter config={config} saveConfig={saveConfig} initPanel={initPanel} />
+          </PanelSetup>
+        </MockPanelContextProvider>
+      </ThemeProvider>
+    );
+
+    const { rerender } = render(
+      <Wrapper capabilities={noCapabilities} currentTime={{ sec: 1, nsec: 0 }} />,
+    );
+    await act(async () => undefined);
+
+    rerender(<Wrapper capabilities={canAdvertise} currentTime={{ sec: 1, nsec: 0 }} />);
+    await act(async () => undefined);
+    expect(initPanel).toHaveBeenCalledTimes(2);
+
+    // The first initialization's late cleanup.
+    act(() => {
+      contexts[0]!.onRender = undefined;
+      contexts[0]!.unsubscribeAll();
+    });
+
+    expect(mockSetSubscriptions.mock.calls.at(-1)?.[1]).toEqual([
+      expect.objectContaining({ topic: "x" }),
+    ]);
+
+    renders.length = 0;
+    rerender(<Wrapper capabilities={canAdvertise} currentTime={{ sec: 2, nsec: 0 }} />);
+    await act(async () => undefined);
+    expect(initPanel).toHaveBeenCalledTimes(2);
+    expect(renders).toEqual([2]);
+  });
+
   it("ignores subscriptions after panel unmount", async () => {
     const sig = signal();
     const initPanel = jest.fn((context: PanelExtensionContext) => {
