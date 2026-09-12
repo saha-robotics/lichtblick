@@ -4,7 +4,10 @@
 # key, because it also had to authenticate the robot socket. That job has moved
 # to the robot gateway (the socket is /api/u/ws/v1/<robot>/foxglove there, and
 # the session cookie admits it), so this image only has to serve files.
-FROM node:20-alpine AS build
+# The web build is architecture-independent - static files - so it runs once, on
+# the builder's own platform, and only the nginx stage is assembled per
+# architecture. Without this an arm64 image would mean webpack under QEMU.
+FROM --platform=$BUILDPLATFORM node:20-alpine AS build
 WORKDIR /src
 COPY . ./
 RUN corepack enable && yarn install --immutable && yarn run web:build:prod
