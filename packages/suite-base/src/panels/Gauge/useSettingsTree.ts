@@ -14,13 +14,18 @@ export function useSettingsTree({
   pathParseError,
   error,
 }: SettingsTreeNodesProps): Record<"general", SettingsTreeNode> {
-  const { colorMap, colorMode, gradient, maxValue, minValue, path, reverse } = config;
+  const { colorMap, colorMode, gradient, maxValue, minValue, path, reverse, title } = config;
   const { t } = useTranslation("gauge");
 
   const generalSettings = useMemo(
     (): SettingsTreeNode => ({
       error,
       fields: {
+        title: {
+          label: "Title",
+          input: "string",
+          value: title,
+        },
         path: {
           label: t("messagePath.label"),
           input: "messagepath",
@@ -76,7 +81,7 @@ export function useSettingsTree({
         },
       },
     }),
-    [error, t, path, minValue, maxValue, colorMode, colorMap, gradient, reverse, pathParseError],
+    [error, t, title, path, minValue, maxValue, colorMode, colorMap, gradient, reverse, pathParseError],
   );
 
   return useShallowMemo({

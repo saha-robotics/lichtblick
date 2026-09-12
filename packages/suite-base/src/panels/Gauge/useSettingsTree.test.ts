@@ -85,6 +85,23 @@ describe("useSettingsTree", () => {
     expect(general.fields!.colorMap).toBeUndefined();
   });
 
+  it("should include title field", () => {
+    const { props } = setup({
+      config: GaugeBuilder.config({
+        title: "CPU",
+      }),
+    });
+
+    const { result } = renderHook(() => useSettingsTree(props));
+    const { general } = result.current;
+
+    expect(general.fields!.title).toEqual({
+      label: "Title",
+      input: "string",
+      value: "CPU",
+    });
+  });
+
   it("should include reverse field", () => {
     const { props } = setup({
       config: GaugeBuilder.config({

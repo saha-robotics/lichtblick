@@ -18,6 +18,7 @@ export default class GaugeBuilder {
       minValue: BasicBuilder.number(),
       path: BasicBuilder.string(),
       reverse: BasicBuilder.boolean(),
+      title: BasicBuilder.string(),
     });
   }
 }

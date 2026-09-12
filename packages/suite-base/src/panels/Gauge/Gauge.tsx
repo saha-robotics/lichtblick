@@ -135,6 +135,7 @@ export function Gauge({ context }: GaugeProps): React.JSX.Element {
   const [clipPathId] = useState(() => `gauge-clip-path-${uuidv4()}`);
   return (
     <div className={classes.root}>
+      {config.title !== "" && <div className={classes.title}>{config.title}</div>}
       <div className={classes.gaugeContainer}>
         <div className={classes.gaugeWrapper} style={{ aspectRatio: `${width} / ${height}` }}>
           <div

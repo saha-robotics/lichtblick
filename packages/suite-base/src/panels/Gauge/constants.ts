@@ -28,6 +28,7 @@ export const DEFAULT_CONFIG: GaugeConfig = {
   minValue: 0,
   path: "",
   reverse: false,
+  title: "",
 };
 
 export const COLOR_MAPS: Record<ColorMapConfig | ColorModeConfig, ColorStops[]> = {

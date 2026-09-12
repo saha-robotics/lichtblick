@@ -26,6 +26,10 @@ export type GaugeConfig = {
   minValue: number;
   path: string;
   reverse: boolean;
+  // A short label drawn in the panel's corner ("CPU", "Battery"). Ours: the
+  // fleet layout puts four gauges side by side and the path alone does not
+  // say which is which.
+  title: string;
 };
 
 export type ColorStops = {

@@ -1,0 +1,798 @@
+{
+  "configById": {
+    "RawMessages!43o2oy0": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/LB/robot_record",
+      "expansion": "none"
+    },
+    "RawMessages!3nqtjsq": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/LB/robot_record.flags",
+      "expansion": "none"
+    },
+    "RawMessages!2vqntrp": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/LB/robot_info",
+      "expansion": {
+        "versions": "e",
+        "0~versions": "e",
+        "1~versions": "e",
+        "2~versions": "c",
+        "3~versions": "c",
+        "4~versions": "c",
+        "setup_ok_req": "c"
+      }
+    },
+    "CallService!30rj6ls": {
+      "requestPayload": "{}",
+      "layout": "horizontal"
+    },
+    "Publish!wc9tng": {
+      "buttonText": "Publish",
+      "buttonTooltip": "",
+      "advancedView": true,
+      "value": "{}"
+    },
+    "3D!18i6zy7": {
+      "layers": {
+        "845139cb-26bc-40b3-8161-8ab60af4baf5": {
+          "visible": false,
+          "frameLocked": true,
+          "label": "Grid",
+          "instanceId": "845139cb-26bc-40b3-8161-8ab60af4baf5",
+          "layerId": "foxglove.Grid",
+          "size": 10,
+          "divisions": 10,
+          "lineWidth": 1,
+          "color": "#248eff",
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "order": 1
+        },
+        "ba197e03-81aa-48af-a9bc-d2933a79d9f7": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "URDF",
+          "instanceId": "ba197e03-81aa-48af-a9bc-d2933a79d9f7",
+          "layerId": "foxglove.Urdf",
+          "sourceType": "url",
+          "url": "https://saha-assets-prod.s3.eu-central-1.amazonaws.com/stl/smr5_dummy.xacro",
+          "filePath": "",
+          "parameter": "/LB/robot_state_publisher/robot_description",
+          "framePrefix": "",
+          "displayMode": "auto",
+          "fallbackColor": "#66ab03",
+          "order": 2,
+          "topic": "/LB/robot_description"
+        }
+      },
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "followTf": "map",
+      "scene": {
+        "labelScaleFactor": 0.5
+      },
+      "transforms": {
+        "frame:left_wheel_link": {
+          "visible": false
+        },
+        "frame:chassis_link": {
+          "visible": false
+        },
+        "frame:right_wheel_link": {
+          "visible": false
+        },
+        "frame:main_lidar_link": {
+          "visible": false
+        },
+        "frame:base_footprint": {
+          "visible": false
+        },
+        "frame:odom": {
+          "visible": false
+        },
+        "frame:base_link": {
+          "visible": false
+        },
+        "frame:bottom_shelf_link": {
+          "visible": false
+        },
+        "frame:trays_head_link": {
+          "visible": false
+        },
+        "frame:charging_block_bottom_link": {
+          "visible": false
+        },
+        "frame:charging_block_top_link": {
+          "visible": false
+        },
+        "frame:cliff_sensor_link": {
+          "visible": false
+        },
+        "frame:docking_virtual_link": {
+          "visible": false
+        },
+        "frame:eyes_cyl_link": {
+          "visible": false
+        },
+        "frame:eyes_link": {
+          "visible": false
+        },
+        "frame:front_camera_bottom_screw_frame": {
+          "visible": false
+        },
+        "frame:front_camera_link": {
+          "visible": false
+        },
+        "frame:imu_link": {
+          "visible": false
+        },
+        "frame:scu_v3_left_bottom": {
+          "visible": false
+        },
+        "frame:imu_link_transform": {
+          "visible": false
+        },
+        "frame:left_mast_link": {
+          "visible": false
+        },
+        "frame:logo_link": {
+          "visible": false
+        },
+        "frame:main_lidar_dummy_cloud_link": {
+          "visible": false
+        },
+        "frame:middle_shelf_link": {
+          "visible": false
+        },
+        "frame:obstacle_lidar_link": {
+          "visible": false
+        },
+        "frame:right_mast_link": {
+          "visible": false
+        },
+        "frame:supp_wheel_bl_link": {
+          "visible": false
+        },
+        "frame:supp_wheel_br_link": {
+          "visible": false
+        },
+        "frame:supp_wheel_fl_link": {
+          "visible": false
+        },
+        "frame:supp_wheel_fr_link": {
+          "visible": false
+        },
+        "frame:map": {
+          "visible": false
+        },
+        "frame:local_map": {
+          "visible": false
+        },
+        "frame:front_camera_color_frame": {
+          "visible": false
+        },
+        "frame:front_camera_color_optical_frame": {
+          "visible": false
+        },
+        "frame:front_camera_depth_frame": {
+          "visible": false
+        },
+        "frame:front_camera_depth_optical_frame": {
+          "visible": false
+        }
+      },
+      "topics": {
+        "/LB/global_costmap/costmap": {
+          "visible": false,
+          "colorMode": "costmap",
+          "alpha": 0.75,
+          "frameLocked": false
+        },
+        "/LB/main/scan": {
+          "visible": true,
+          "colorField": "intensity",
+          "colorMode": "flat",
+          "colorMap": "turbo",
+          "pointSize": 4,
+          "flatColor": "#d40606ff"
+        },
+        "/LB/map": {
+          "visible": true,
+          "colorMode": "map",
+          "alpha": 0.75
+        },
+        "/LB/obstacle/scan": {
+          "visible": true,
+          "colorField": "intensity",
+          "colorMode": "flat",
+          "colorMap": "turbo",
+          "flatColor": "#1419f1ff",
+          "pointSize": 4
+        },
+        "/LB/obstacle/scan_drop": {
+          "visible": true,
+          "colorField": "intensity",
+          "colorMode": "flat",
+          "colorMap": "turbo",
+          "pointSize": 4,
+          "flatColor": "#1a6403ff"
+        },
+        "/LB/main/scan_drop": {
+          "visible": true,
+          "colorField": "intensity",
+          "colorMode": "flat",
+          "colorMap": "turbo",
+          "flatColor": "#ec0606ff",
+          "pointSize": 4
+        },
+        "/LB/front_camera/color/image_raw_drop": {
+          "visible": false
+        },
+        "/LB/camera_compressed": {
+          "visible": false
+        },
+        "/LB/depth_camera_compressed": {
+          "visible": false,
+          "cameraInfoTopic": "/LB/front_camera/depth/camera_info"
+        },
+        "/LB/front_camera/depth/color/points": {
+          "visible": false,
+          "colorField": "z",
+          "colorMode": "colormap",
+          "colorMap": "turbo",
+          "pointSize": 4
+        },
+        "/LB/local_costmap/costmap": {
+          "visible": false
+        },
+        "/LB/slam_toolbox/map": {
+          "visible": false
+        },
+        "/LB/planner_server/plan": {
+          "visible": true,
+          "gradient": [
+            "#ff001aff",
+            "#ff000080"
+          ],
+          "lineWidth": 0.1
+        },
+        "/LB/planner_server/static_plan": {
+          "visible": true,
+          "gradient": [
+            "#00ff1eff",
+            "#00fd0580"
+          ],
+          "lineWidth": 0.1
+        },
+        "/LB/visualization_marker_array": {
+          "visible": true,
+          "showOutlines": true,
+          "selectedIdVariable": ""
+        },
+        "/LB/slam_toolbox/graph_visualization": {
+          "visible": true
+        }
+      },
+      "publish": {
+        "type": "pose_estimate",
+        "poseTopic": "/LB/move_base_simple/goal",
+        "pointTopic": "/LB/clicked_point",
+        "poseEstimateTopic": "/LB/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {}
+    },
+    "Tab!30dujxr": {
+      "activeTabIdx": 0,
+      "tabs": [
+        {
+          "title": "Robot Record",
+          "layout": {
+            "first": "RawMessages!43o2oy0",
+            "second": "RawMessages!3nqtjsq",
+            "direction": "row",
+            "splitPercentage": 50.89141004862236
+          }
+        },
+        {
+          "title": "Robot Info",
+          "layout": "RawMessages!2vqntrp"
+        },
+        {
+          "title": "Service Call",
+          "layout": "CallService!30rj6ls"
+        },
+        {
+          "title": "Publish",
+          "layout": "Publish!wc9tng"
+        }
+      ]
+    },
+    "RawMessages!43xei30": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/LB/robot_info.robot_id",
+      "expansion": "none"
+    },
+    "RawMessages!9hcws5": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/LB/robot_info.ros_ws_version",
+      "expansion": "none"
+    },
+    "RawMessages!3a8ypvy": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/LB/robot_info.dep_ws_version",
+      "expansion": "none"
+    },
+    "RawMessages!3nc4btb": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/LB/robot_info.scu_version",
+      "expansion": "none"
+    },
+    "Image!440nmz4": {
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/LB/move_base_simple/goal",
+        "pointTopic": "/LB/clicked_point",
+        "poseEstimateTopic": "/LB/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {
+        "imageTopic": "/LB/camera_compressed"
+      }
+    },
+    "Teleop!x298uo": {
+      "topic": "/LB/twist/joy_vel",
+      "publishRate": 10,
+      "upButton": {
+        "field": "linear-x",
+        "value": 1
+      },
+      "downButton": {
+        "field": "linear-x",
+        "value": -1
+      },
+      "leftButton": {
+        "field": "angular-z",
+        "value": 1
+      },
+      "rightButton": {
+        "field": "angular-z",
+        "value": -1
+      }
+    },
+    "PlaybackPerformance!35tzv9b": {},
+    "Plot!11ec0pm": {
+      "paths": [
+        {
+          "timestampMethod": "receiveTime",
+          "value": "/LB/odom.twist.twist.linear.x",
+          "enabled": true,
+          "label": "Linear X"
+        },
+        {
+          "timestampMethod": "receiveTime",
+          "value": "/LB/odom.twist.twist.angular.z",
+          "enabled": true,
+          "label": "Angular Z"
+        }
+      ],
+      "showXAxisLabels": false,
+      "showYAxisLabels": true,
+      "showLegend": false,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "sidebarDimension": 240
+    },
+    "RawMessages!2jmwjrg": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/LB/robot_record.loc_site",
+      "expansion": "none"
+    },
+    "Gauge!2n94816": {
+      "path": "/LB/robot_record.sys_cpu_percent",
+      "minValue": 0,
+      "maxValue": 100,
+      "colorMap": "red-yellow-green",
+      "colorMode": "colormap",
+      "gradient": [
+        "#0000ff",
+        "#ff00ff"
+      ],
+      "reverse": true,
+      "title": "CPU"
+    },
+    "RawMessages!823v0q": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/LB/robot_record.loc_floor",
+      "expansion": "none"
+    },
+    "Gauge!4g8lrh8": {
+      "path": "/LB/robot_record.sys_ram_percent",
+      "minValue": 0,
+      "maxValue": 100,
+      "colorMap": "red-yellow-green",
+      "colorMode": "colormap",
+      "gradient": [
+        "#0000ff",
+        "#ff00ff"
+      ],
+      "reverse": true,
+      "title": "RAM"
+    },
+    "RawMessages!1nfgnjv": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/LB/mission_state.state_str",
+      "expansion": "none"
+    },
+    "Gauge!31shu9": {
+      "path": "/LB/robot_record.sys_disk_percent",
+      "minValue": 0,
+      "maxValue": 100,
+      "colorMap": "red-yellow-green",
+      "colorMode": "colormap",
+      "gradient": [
+        "#0000ff",
+        "#ff00ff"
+      ],
+      "reverse": true,
+      "title": "Disk"
+    },
+    "Indicator!23ixcp6": {
+      "path": "/LB/robot_record.flags.estop",
+      "style": "bulb",
+      "fallbackColor": "#a0a0a0",
+      "fallbackLabel": "Arm",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "true",
+          "color": "#d71e1e",
+          "label": "E-STOP"
+        }
+      ]
+    },
+    "Gauge!3hmp42m": {
+      "path": "/LB/robot_record.sys_batt_percent",
+      "minValue": 0,
+      "maxValue": 100,
+      "colorMap": "red-yellow-green",
+      "colorMode": "gradient",
+      "gradient": [
+        "#00ff3f00",
+        "#12ff00ff"
+      ],
+      "reverse": false,
+      "title": "Battery"
+    },
+    "Indicator!2z5f9dm": {
+      "path": "/LB/robot_record.flags.lidars_ok",
+      "style": "background",
+      "fallbackColor": "#e4221c",
+      "fallbackLabel": "Lidars",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "true",
+          "color": "#68e24a",
+          "label": "Lidars"
+        }
+      ]
+    },
+    "Indicator!2sxsnws": {
+      "path": "/LB/robot_record.flags.controller_ok",
+      "style": "background",
+      "fallbackColor": "#e4221c",
+      "fallbackLabel": "Control",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "true",
+          "color": "#68e24a",
+          "label": "Control"
+        }
+      ]
+    },
+    "Indicator!ik9ag7": {
+      "path": "/LB/robot_record.flags.cameras_ok",
+      "style": "background",
+      "fallbackColor": "#e4221c",
+      "fallbackLabel": "Cameras",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "true",
+          "color": "#68e24a",
+          "label": "Cameras"
+        }
+      ]
+    },
+    "Indicator!tba2s5": {
+      "path": "/LB/robot_record.flags.nav_ok",
+      "style": "background",
+      "fallbackColor": "#e4221c",
+      "fallbackLabel": "Nav",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "true",
+          "color": "#68e24a",
+          "label": "Nav"
+        }
+      ]
+    },
+    "Indicator!3nkriw2": {
+      "path": "/LB/robot_record.flags.motors_ok",
+      "style": "background",
+      "fallbackColor": "#e4221c",
+      "fallbackLabel": "Motors",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "true",
+          "color": "#68e24a",
+          "label": "Motors"
+        }
+      ]
+    },
+    "Indicator!3i6yjyr": {
+      "path": "/LB/robot_record.flags.sync_ok",
+      "style": "background",
+      "fallbackColor": "#e4221c",
+      "fallbackLabel": "Sync",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "true",
+          "color": "#68e24a",
+          "label": "Sync"
+        }
+      ]
+    },
+    "Indicator!2lwid1u": {
+      "path": "/LB/robot_record.flags.scu_comm_ok",
+      "style": "background",
+      "fallbackColor": "#e4221c",
+      "fallbackLabel": "SCU Comm",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "true",
+          "color": "#68e24a",
+          "label": "SCU Comm"
+        }
+      ]
+    },
+    "Indicator!6oef9l": {
+      "path": "/LB/robot_record.flags.tf_ok",
+      "style": "background",
+      "fallbackColor": "#e4221c",
+      "fallbackLabel": "TF",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "true",
+          "color": "#68e24a",
+          "label": "TF"
+        }
+      ]
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {
+    "198f9da0-7344-4571-9ffe-354904998527": {
+      "sourceCode": "import { Input, Message } from \"./types\";\n\ntype Bool = {\n  data: boolean;\n};\n\nexport const inputs = [\"/LB/robot_record\"];\nexport const output = \"/LB/heartbeat\";\n\nexport default function script(event: Input<\"/LB/robot_record\">): Bool {\n  return {\n    data: true,\n  };\n}\n",
+      "name": "std_msgs/msg/Bool"
+    }
+  },
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": {
+    "first": {
+      "first": "3D!18i6zy7",
+      "second": "Tab!30dujxr",
+      "direction": "column",
+      "splitPercentage": 80.11881848506658
+    },
+    "second": {
+      "first": {
+        "first": {
+          "first": {
+            "first": {
+              "first": {
+                "first": "RawMessages!43xei30",
+                "second": "RawMessages!9hcws5",
+                "direction": "row"
+              },
+              "second": {
+                "first": "RawMessages!3a8ypvy",
+                "second": "RawMessages!3nc4btb",
+                "direction": "row",
+                "splitPercentage": 42.80155642023345
+              },
+              "direction": "row",
+              "splitPercentage": 45.924730605733906
+            },
+            "second": {
+              "first": "Image!440nmz4",
+              "second": {
+                "first": "Teleop!x298uo",
+                "second": "PlaybackPerformance!35tzv9b",
+                "direction": "column"
+              },
+              "direction": "row"
+            },
+            "direction": "column",
+            "splitPercentage": 30.909220506594405
+          },
+          "second": "Plot!11ec0pm",
+          "direction": "column",
+          "splitPercentage": 74.7927031509121
+        },
+        "second": {
+          "first": {
+            "first": {
+              "first": "RawMessages!2jmwjrg",
+              "second": "Gauge!2n94816",
+              "direction": "column"
+            },
+            "second": {
+              "first": "RawMessages!823v0q",
+              "second": "Gauge!4g8lrh8",
+              "direction": "column"
+            },
+            "direction": "row"
+          },
+          "second": {
+            "first": {
+              "first": "RawMessages!1nfgnjv",
+              "second": "Gauge!31shu9",
+              "direction": "column"
+            },
+            "second": {
+              "first": "Indicator!23ixcp6",
+              "second": "Gauge!3hmp42m",
+              "direction": "column"
+            },
+            "direction": "row"
+          },
+          "direction": "row"
+        },
+        "direction": "column",
+        "splitPercentage": 70.80306221779804
+      },
+      "second": {
+        "first": {
+          "first": {
+            "first": "Indicator!2z5f9dm",
+            "second": "Indicator!2sxsnws",
+            "direction": "column"
+          },
+          "second": {
+            "first": "Indicator!ik9ag7",
+            "second": "Indicator!tba2s5",
+            "direction": "column"
+          },
+          "direction": "row"
+        },
+        "second": {
+          "first": {
+            "first": "Indicator!3nkriw2",
+            "second": "Indicator!3i6yjyr",
+            "direction": "column"
+          },
+          "second": {
+            "first": "Indicator!2lwid1u",
+            "second": "Indicator!6oef9l",
+            "direction": "column"
+          },
+          "direction": "row"
+        },
+        "direction": "row"
+      },
+      "direction": "column",
+      "splitPercentage": 81.73302107728337
+    },
+    "direction": "row",
+    "splitPercentage": 62.70270270270271
+  }
+}

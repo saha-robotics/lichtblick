@@ -3,7 +3,7 @@
 
 import { makeStyles } from "tss-react/mui";
 
-export const useStyles = makeStyles()(() => ({
+export const useStyles = makeStyles()((theme) => ({
   root: {
     alignItems: "center",
     display: "flex",
@@ -12,7 +12,16 @@ export const useStyles = makeStyles()(() => ({
     justifyContent: "space-around",
     overflow: "hidden",
     padding: 8,
+    position: "relative",
     width: "100%",
+  },
+  title: {
+    color: theme.palette.text.secondary,
+    fontSize: theme.typography.caption.fontSize,
+    left: 6,
+    position: "absolute",
+    top: 3,
+    whiteSpace: "pre-line",
   },
   gaugeContainer: {
     overflow: "hidden",
