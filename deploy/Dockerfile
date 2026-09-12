@@ -14,7 +14,7 @@ RUN corepack enable && yarn install --immutable && yarn run web:build:prod
 # The default layout goes into index.html here, at build time. The runtime image
 # serves as an unprivileged user and owns none of the files it serves, so it
 # cannot do this at start - the first attempt crashed on exactly that.
-RUN node deploy/bake-layout.js web/.webpack/index.html deploy/default-layout.json
+RUN node deploy/bake-layout.js web/.webpack/index.html deploy/default-layout.json /layouts/saha-default.json
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf

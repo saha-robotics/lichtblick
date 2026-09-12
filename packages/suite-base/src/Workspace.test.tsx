@@ -693,6 +693,90 @@ describe("Workspace - fetchLayoutFromUrl", () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  describe("with a deployment layout URL", () => {
+    const withDeploymentLayoutUrl = (value: string | undefined) => {
+      (
+        globalThis as { LICHTBLICK_SUITE_DEFAULT_LAYOUT_URL?: string }
+      ).LICHTBLICK_SUITE_DEFAULT_LAYOUT_URL = value;
+    };
+
+    afterEach(() => {
+      withDeploymentLayoutUrl(undefined);
+    });
+
+    it("loads it, resolved against the page, when the link carries no layoutUrl", async () => {
+      // Given
+      withDeploymentLayoutUrl("/layouts/saha-default.json");
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        text: jest.fn().mockResolvedValue('{"configById":{}}'),
+      });
+      (parseAppURLState as jest.Mock).mockReturnValue({
+        ds: "foxglove-websocket",
+        dsParams: { url: "wss://robots.example.com/api/u/ws/v1/SR1/foxglove" },
+      });
+
+      // When
+      render(<Workspace deepLinks={["https://app.example.com/?ds=foxglove-websocket"]} />);
+
+      // Then
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          new URL("/layouts/saha-default.json", window.location.href).href,
+        );
+      });
+      await waitFor(() => {
+        expect(mockParseAndInstallLayout).toHaveBeenCalledWith(
+          expect.objectContaining({ name: "saha-default.json" }),
+          "local",
+        );
+      });
+    });
+
+    it("loads it for a plain link with no URL state at all", async () => {
+      // Given
+      withDeploymentLayoutUrl("/layouts/saha-default.json");
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        text: jest.fn().mockResolvedValue('{"configById":{}}'),
+      });
+      (parseAppURLState as jest.Mock).mockReturnValue(undefined);
+
+      // When
+      render(<Workspace deepLinks={["https://app.example.com/"]} />);
+
+      // Then
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("gives way to a layoutUrl in the link", async () => {
+      // Given
+      withDeploymentLayoutUrl("/layouts/saha-default.json");
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        text: jest.fn().mockResolvedValue('{"configById":{}}'),
+      });
+      (parseAppURLState as jest.Mock).mockReturnValue({
+        layoutUrl: "https://example.com/my-layout.json",
+      });
+
+      // When
+      render(
+        <Workspace
+          deepLinks={["https://app.example.com/?layoutUrl=https://example.com/my-layout.json"]}
+        />,
+      );
+
+      // Then
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith("https://example.com/my-layout.json");
+      });
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("should show error snackbar for malformed URL that cannot be parsed", async () => {
     // Given
     (parseAppURLState as jest.Mock).mockReturnValue({

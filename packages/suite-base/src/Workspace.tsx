@@ -135,6 +135,26 @@ const selectWorkspaceRightSidebarItem = (store: WorkspaceContextStore) => store.
 const selectWorkspaceRightSidebarOpen = (store: WorkspaceContextStore) => store.sidebars.right.open;
 const selectWorkspaceRightSidebarSize = (store: WorkspaceContextStore) => store.sidebars.right.size;
 
+/**
+ * A layout URL the deployment supplies, loaded on every open exactly like
+ * `?layoutUrl=` - which still wins when a link carries one. Set in index.html
+ * at image build (ours: the fleet layout the cluster mounts from a ConfigMap),
+ * so links do not have to carry it. A relative path resolves against the page.
+ */
+function deploymentLayoutUrl(): string | undefined {
+  const configured = (globalThis as { LICHTBLICK_SUITE_DEFAULT_LAYOUT_URL?: unknown })
+    .LICHTBLICK_SUITE_DEFAULT_LAYOUT_URL;
+  if (typeof configured !== "string" || configured === "") {
+    return undefined;
+  }
+  try {
+    return new URL(configured, globalThis.location.href).href;
+  } catch {
+    // Left as given; fetchLayoutFromUrl reports it as an invalid layout URL.
+    return configured;
+  }
+}
+
 function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
   const { PerformanceSidebarComponent } = useAppContext();
   const { classes } = useStyles();
@@ -512,15 +532,13 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
         layoutUrl?: string;
       }
     | undefined
-  >(
-    targetUrlState && !targetUrlState.mcapBundleId
-      ? {
-          ds: targetUrlState.ds,
-          dsParams: targetUrlState.dsParams,
-          layoutUrl: targetUrlState.layoutUrl,
-        }
-      : undefined,
-  );
+  >(() => {
+    const layoutUrl = targetUrlState?.layoutUrl ?? deploymentLayoutUrl();
+    if (targetUrlState && !targetUrlState.mcapBundleId) {
+      return { ds: targetUrlState.ds, dsParams: targetUrlState.dsParams, layoutUrl };
+    }
+    return layoutUrl ? { ds: undefined, dsParams: undefined, layoutUrl } : undefined;
+  });
 
   // Resolve MCAP bundle URLs when mcapBundleId is present.
   useEffect(() => {
