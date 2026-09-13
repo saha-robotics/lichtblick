@@ -24,9 +24,32 @@ const selectCurrentTime = (ctx: MessagePipelineContext) => ctx.playerState.activ
 const selectUrlState = (ctx: MessagePipelineContext) => ctx.playerState.urlState;
 const selectSelectedEventId = (store: EventsStore) => store.selectedEventId;
 
+/**
+ * The URL decoded for readability, but only when decoding does not change what
+ * it says. A data source URL that carries its own query string - a presigned S3
+ * link - has `%26` in it; decoded, that becomes `&` and the signature's
+ * parameters spill out of ds.url into the page's query, so the address no
+ * longer opens the file. Such a URL is left encoded.
+ */
+function addressBarHref(url: URL): string {
+  const decoded = decodeURIComponent(url.href);
+  try {
+    const reparsed = new URL(decoded);
+    if (
+      JSON.stringify([...reparsed.searchParams.entries()]) ===
+      JSON.stringify([...url.searchParams.entries()])
+    ) {
+      return decoded;
+    }
+  } catch {
+    // Not a URL once decoded; keep the encoded one.
+  }
+  return url.href;
+}
+
 function updateUrl(newState: AppURLState) {
   const newStateUrl = updateAppURLState(new URL(window.location.href), newState);
-  window.history.replaceState(undefined, "", decodeURIComponent(newStateUrl.href));
+  window.history.replaceState(undefined, "", addressBarHref(newStateUrl));
 }
 
 /**

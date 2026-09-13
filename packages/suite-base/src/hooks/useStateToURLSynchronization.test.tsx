@@ -83,6 +83,37 @@ describe("useStateToURLSynchronization", () => {
     );
   });
 
+  it("keeps a presigned remote-file URL intact in the address bar", () => {
+    // A presigned S3 URL carries its own query string. Decoding the whole href
+    // for readability turned its `%26` into `&`, so the signature's parameters
+    // spilled out of ds.url into the page's own query and a copied address no
+    // longer opened the file.
+    const spy = jest.spyOn(window.history, "replaceState");
+    window.history.pushState({}, "", "http://localhost/");
+    const signed =
+      "https://bucket.s3.eu-central-1.amazonaws.com/bag/file_0.mcap?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIA%2F20260913%2Feu-central-1%2Fs3%2Faws4_request&X-Amz-Signature=abc123&x-id=GetObject";
+
+    (useMessagePipeline as jest.Mock).mockImplementation((selector) =>
+      selector({
+        playerState: {
+          activeData: { currentTime: { sec: 5, nsec: 0 } },
+          capabilities: ["playbackControl"],
+          urlState: { sourceId: "remote-file", parameters: { url: signed } },
+        },
+      }),
+    );
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <EventsProvider>{children}</EventsProvider>
+    );
+    renderHook(useStateToURLSynchronization, { wrapper });
+
+    const written = new URL(spy.mock.calls[spy.mock.calls.length - 1]![2] as string);
+    expect(written.searchParams.get("ds")).toBe("remote-file");
+    expect(written.searchParams.get("ds.url")).toBe(signed);
+    expect(written.searchParams.get("X-Amz-Signature")).toBeNull();
+  });
+
   it("suppresses ds param writeback when mcap-bundle is present in the URL", () => {
     const spy = jest.spyOn(window.history, "replaceState");
 

@@ -136,8 +136,9 @@ const selectWorkspaceRightSidebarOpen = (store: WorkspaceContextStore) => store.
 const selectWorkspaceRightSidebarSize = (store: WorkspaceContextStore) => store.sidebars.right.size;
 
 /**
- * A layout URL the deployment supplies, loaded on every open exactly like
- * `?layoutUrl=` - which still wins when a link carries one. Set in index.html
+ * A layout URL the deployment supplies, loaded on every live robot connection
+ * (ds=foxglove-websocket) exactly like `?layoutUrl=` - which still wins when a
+ * link carries one. Set in index.html
  * at image build (ours: the fleet layout the cluster mounts from a ConfigMap),
  * so links do not have to carry it. A relative path resolves against the page.
  */
@@ -533,7 +534,11 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
       }
     | undefined
   >(() => {
-    const layoutUrl = targetUrlState?.layoutUrl ?? deploymentLayoutUrl();
+    // The deployment's layout is for live robots; a recording (remote-file) or a
+    // plain link keeps whatever layout the user has selected.
+    const layoutUrl =
+      targetUrlState?.layoutUrl ??
+      (targetUrlState?.ds === "foxglove-websocket" ? deploymentLayoutUrl() : undefined);
     if (targetUrlState && !targetUrlState.mcapBundleId) {
       return { ds: targetUrlState.ds, dsParams: targetUrlState.dsParams, layoutUrl };
     }

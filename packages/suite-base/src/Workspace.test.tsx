@@ -704,7 +704,7 @@ describe("Workspace - fetchLayoutFromUrl", () => {
       withDeploymentLayoutUrl(undefined);
     });
 
-    it("loads it, resolved against the page, when the link carries no layoutUrl", async () => {
+    it("loads it, resolved against the page, for a live robot connection without layoutUrl", async () => {
       // Given
       withDeploymentLayoutUrl("/layouts/saha-default.json");
       global.fetch = jest.fn().mockResolvedValue({
@@ -733,22 +733,23 @@ describe("Workspace - fetchLayoutFromUrl", () => {
       });
     });
 
-    it("loads it for a plain link with no URL state at all", async () => {
-      // Given
+    it("leaves a recording's layout alone: not for remote-file, not for a plain link", async () => {
+      // The fleet layout names live robot topics (/LB/...). A bag opened from
+      // Remote's diagnostics page has different topic names, and forcing the
+      // fleet layout onto it left every panel empty.
       withDeploymentLayoutUrl("/layouts/saha-default.json");
-      global.fetch = jest.fn().mockResolvedValue({
-        ok: true,
-        text: jest.fn().mockResolvedValue('{"configById":{}}'),
+      global.fetch = jest.fn();
+      (parseAppURLState as jest.Mock).mockReturnValue({
+        ds: "remote-file",
+        dsParams: { url: "https://bucket.example.com/file.mcap" },
       });
-      (parseAppURLState as jest.Mock).mockReturnValue(undefined);
+      render(<Workspace deepLinks={["https://app.example.com/?ds=remote-file"]} />);
 
-      // When
+      (parseAppURLState as jest.Mock).mockReturnValue(undefined);
       render(<Workspace deepLinks={["https://app.example.com/"]} />);
 
-      // Then
-      await waitFor(() => {
-        expect(global.fetch).toHaveBeenCalledTimes(1);
-      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(global.fetch).not.toHaveBeenCalled();
     });
 
     it("gives way to a layoutUrl in the link", async () => {
