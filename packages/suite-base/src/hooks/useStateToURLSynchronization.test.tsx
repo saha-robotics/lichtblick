@@ -83,6 +83,36 @@ describe("useStateToURLSynchronization", () => {
     );
   });
 
+  it("keeps a short robot link short while that robot is the source", () => {
+    const spy = jest.spyOn(window.history, "replaceState");
+    const socketUrl = "wss://robots.example.com/api/u/ws/v1/SR121S2/foxglove";
+    window.history.pushState({}, "", "http://localhost/SR121S2");
+    (globalThis as { LICHTBLICK_ROBOT_LINK?: unknown }).LICHTBLICK_ROBOT_LINK = {
+      path: "/SR121S2",
+      socketUrl,
+    };
+    try {
+      (useMessagePipeline as jest.Mock).mockImplementation((selector) =>
+        selector({
+          playerState: {
+            activeData: { currentTime: { sec: 5, nsec: 0 } },
+            capabilities: [],
+            urlState: { sourceId: "foxglove-websocket", parameters: { url: socketUrl } },
+          },
+        }),
+      );
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <EventsProvider>{children}</EventsProvider>
+      );
+      renderHook(useStateToURLSynchronization, { wrapper });
+
+      expect(spy.mock.calls[spy.mock.calls.length - 1]![2]).toBe("http://localhost/SR121S2");
+    } finally {
+      delete (globalThis as { LICHTBLICK_ROBOT_LINK?: unknown }).LICHTBLICK_ROBOT_LINK;
+      window.history.pushState({}, "", "http://localhost/");
+    }
+  });
+
   it("keeps a presigned remote-file URL intact in the address bar", () => {
     // A presigned S3 URL carries its own query string. Decoding the whole href
     // for readability turned its `%26` into `&`, so the signature's parameters

@@ -14,6 +14,7 @@ import CssBaseline from "@lichtblick/suite-base/components/CssBaseline";
 
 import { CompatibilityBanner } from "./CompatibilityBanner";
 import { canRenderApp } from "./canRenderApp";
+import { resolveRobotLink } from "./robotLink";
 
 const log = Logger.getLogger(__filename);
 
@@ -67,6 +68,29 @@ export async function main(getParams: () => Promise<MainParams> = async () => ({
     return;
   }
 
+  // A short robot link (`/<robot>`) is resolved before anything renders: it may
+  // have to go round sign-in first, and the app must start with the connection
+  // already in its deep link. Uses the browser's own fetch - suite-base's
+  // overwriteFetch has not run yet. See robotLink.ts.
+  const robotLink = await resolveRobotLink({
+    href: globalThis.location.href,
+    fetch: async (input, init) => await globalThis.fetch(input, init),
+    storage: globalThis.sessionStorage,
+    replace: (url) => {
+      globalThis.location.replace(url);
+    },
+    now: Date.now,
+  });
+  if (robotLink.kind === "redirected") {
+    return;
+  }
+  if (robotLink.kind === "connect") {
+    (globalThis as { LICHTBLICK_ROBOT_LINK?: unknown }).LICHTBLICK_ROBOT_LINK = {
+      path: `/${robotLink.robot}`,
+      socketUrl: robotLink.socketUrl,
+    };
+  }
+
   // Use an async import to delay loading the majority of suite-base code until the CompatibilityBanner
   // can be displayed.
   const { installDevtoolsFormatters, overwriteFetch, waitForFonts, initI18n, StudioApp } =
@@ -80,7 +104,11 @@ export async function main(getParams: () => Promise<MainParams> = async () => ({
   const { WebRoot } = await import("./WebRoot");
   const params = await getParams();
   const rootElement = params.rootElement ?? (
-    <WebRoot extraProviders={params.extraProviders} dataSources={params.dataSources}>
+    <WebRoot
+      extraProviders={params.extraProviders}
+      dataSources={params.dataSources}
+      deepLink={robotLink.kind === "connect" ? robotLink.deepLink : undefined}
+    >
       <StudioApp />
     </WebRoot>
   );

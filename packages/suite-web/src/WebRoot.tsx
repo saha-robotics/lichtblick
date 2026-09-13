@@ -36,6 +36,8 @@ export function WebRoot(props: {
   dataSources: IDataSourceFactory[] | undefined;
   AppBarComponent?: (props: AppBarProps) => React.JSX.Element;
   children: React.JSX.Element;
+  /** The link the app starts from; the page's own address unless a short robot link resolved to one. */
+  deepLink?: string;
 }): React.JSX.Element {
   const appConfiguration = useMemo(
     () =>
@@ -86,7 +88,7 @@ export function WebRoot(props: {
   return (
     <SharedRoot
       enableLaunchPreferenceScreen
-      deepLinks={[globalThis.location.href]}
+      deepLinks={[props.deepLink ?? globalThis.location.href]}
       dataSources={dataSources}
       appConfiguration={appConfiguration}
       appParameters={appParameters}

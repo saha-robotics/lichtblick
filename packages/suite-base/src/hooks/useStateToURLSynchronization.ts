@@ -17,6 +17,7 @@ import {
 import { EventsStore, useEvents } from "@lichtblick/suite-base/context/EventsContext";
 import { PLAYER_CAPABILITIES } from "@lichtblick/suite-base/players/constants";
 import { AppURLState, updateAppURLState } from "@lichtblick/suite-base/util/appURLState";
+import { currentRobotLink, robotLinkAddress } from "@lichtblick/suite-base/util/robotLinkAddress";
 
 const selectCanSeek = (ctx: MessagePipelineContext) =>
   ctx.playerState.capabilities.includes(PLAYER_CAPABILITIES.playbackControl);
@@ -49,7 +50,8 @@ function addressBarHref(url: URL): string {
 
 function updateUrl(newState: AppURLState) {
   const newStateUrl = updateAppURLState(new URL(window.location.href), newState);
-  window.history.replaceState(undefined, "", addressBarHref(newStateUrl));
+  const address = robotLinkAddress(newStateUrl, currentRobotLink());
+  window.history.replaceState(undefined, "", addressBarHref(address));
 }
 
 /**
